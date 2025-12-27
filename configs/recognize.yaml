@@ -1,0 +1,10 @@
+# Live recognition configuration.
+model_path: models/lbph_model.xml  # Path to a trained LBPH model.
+labels_path: models/labels.json  # Path to the saved label map.
+camera_index: 0  # VideoCapture source index.
+cascade: ""  # Optional cascade path; blank uses OpenCV's cat-face cascade.
+size: 100  # Image size expected by the recognizer (matches training).
+threshold: 80.0  # Maximum confidence score to accept a prediction.
+scale_factor: 1.1  # Cascade detection scale factor.
+min_neighbors: 3  # Minimum neighbors parameter for the cascade.
+min_size: 60  # Minimum detected face size in pixels.

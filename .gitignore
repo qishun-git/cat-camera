@@ -1,0 +1,23 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*.so
+
+# Virtual environments
+.venv/
+venv/
+
+# IDE/project files
+.idea/
+.vscode/
+*.iml
+.DS_Store
+
+# Build & distribution artifacts
+build/
+dist/
+*.egg-info/
+
+# Local data & models
+data/
+models/

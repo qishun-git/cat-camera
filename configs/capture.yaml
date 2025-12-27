@@ -1,0 +1,10 @@
+# Cat face capture configuration.
+cat_name: whiskers  # Folder label used when saving samples.
+output: data  # Root directory where class folders are created.
+camera_index: 0  # VideoCapture source index or RTSP URL converted to int.
+cascade: ""  # Optional path to haarcascade_frontalcatface(_extended).xml; leave blank for default.
+size: 100  # Saved crop size in pixels (square).
+scale_factor: 1.1  # Cascade detection scale factor (smaller = slower but more thorough).
+min_neighbors: 3  # Minimum neighbors for cascade rectangles.
+min_size: 60  # Minimum detected face size in pixels.
+display_window: true  # Show OpenCV window and require SPACE to save images.
