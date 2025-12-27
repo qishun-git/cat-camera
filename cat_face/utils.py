@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Dict, Iterable, Tuple
+from typing import Any, Dict, Iterable, List, Tuple
 
 import cv2
 import numpy as np
@@ -69,3 +69,26 @@ def load_yaml(path: Path | str) -> Dict[str, Any]:
     if not isinstance(data, dict):
         raise ValueError(f"Expected mapping at top level of {path}")
     return data
+
+
+def list_images_sorted_by_age(directory: Path) -> List[Path]:
+    """Return image files sorted by modification time ascending (oldest first)."""
+    files = list(iter_image_files(directory))
+    files.sort(key=lambda p: p.stat().st_mtime)
+    return files
+
+
+def rotate_files(directory: Path, limit: int) -> int:
+    """Delete oldest files until the directory holds <= limit images."""
+    if limit <= 0 or not directory.exists():
+        return 0
+    files = list_images_sorted_by_age(directory)
+    removed = 0
+    while len(files) > limit:
+        oldest = files.pop(0)
+        try:
+            oldest.unlink()
+            removed += 1
+        except OSError as exc:
+            print(f"Warning: failed to delete {oldest}: {exc}")
+    return removed
