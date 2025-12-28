@@ -58,6 +58,8 @@ sorter:
   delete_rejects: false
   # Image extensions the sorter will display.
   image_extensions: [".png", ".jpg", ".jpeg"]
+  # Optional per-label cap applied after sorting (0 or null to disable).
+  per_label_limit: 1000
 
 training:
   # Label map filename saved under paths.models_dir.
@@ -92,3 +94,9 @@ recorder:
   codec: mp4v
   # Whether to show a preview window while recording clips.
   show_window: true
+
+clip_processing:
+  # Directory containing recorded clips to process (defaults to recorder.output_dir).
+  clips_dir: data/compressed_clips
+  # Optional cap on the number of faces saved per clip (null/0 for unlimited).
+  save_limit: 100
