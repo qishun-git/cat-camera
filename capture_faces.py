@@ -81,7 +81,7 @@ def main() -> None:
             else:
                 key = None
 
-            should_save = not cfg["display_window"] and len(faces) > 0
+            should_save = len(faces) > 0
             if key == ord(" "):
                 should_save = True
             if key == ord("q"):

@@ -10,7 +10,7 @@
 | `scale_factor` | Cascade detector scale factor; lower values improve detection at the cost of speed. | `1.1` |
 | `min_neighbors` | Cascade minNeighbors parameter (higher reduces false positives). | `3` |
 | `min_size` | Minimum face width/height in pixels to consider a detection valid. | `60` |
-| `display_window` | If `true`, shows the OpenCV preview and requires pressing SPACE to save a frame. If `false`, saves automatically whenever a face is detected. | `true` |
+| `display_window` | Shows the OpenCV preview when `true`; saves still happen automatically unless you hold the session paused. | `true` |
 | `capture_mode` | `"labeled"` saves into `cat_name` folder; `"unlabeled"` creates session directories for later sorting. | `"labeled"` |
 | `auto_session_subfolders` | When `true` and in unlabeled mode, each run creates `session-YYYYmmdd-HHMMSS` subfolders to keep captures organized. | `true` |
 | `max_images_per_cat` | Rotation limit for labeled folders; when exceeded, oldest files are deleted. | `500` |
