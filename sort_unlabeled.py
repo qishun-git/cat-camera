@@ -1,28 +1,21 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Dict, List
 
 import cv2
 
-from cat_face.utils import CONFIG_DIR, DATA_DIR, ensure_dir, load_yaml
+from cat_face.utils import ensure_dir, load_project_config, resolve_paths
 
-CONFIG_PATH = CONFIG_DIR / "sort.yaml"
-
-
-def load_config(path: Path = CONFIG_PATH) -> Dict[str, Any]:
-    cfg = load_yaml(path)
-    cfg.setdefault("unlabeled_root", str(DATA_DIR / "unlabeled"))
-    cfg.setdefault("destination_root", str(DATA_DIR))
-    cfg.setdefault("delete_rejects", False)
-    cfg.setdefault("reject_folder", "rejected")
-    cfg.setdefault("window_name", "Sort Unlabeled")
-    cfg.setdefault("image_extensions", [".png", ".jpg", ".jpeg"])
-    cfg.setdefault("window_width", 640)
-    cfg.setdefault("window_height", 480)
-    cfg.setdefault("window_x", 100)
-    cfg.setdefault("window_y", 100)
-    return cfg
+SORT_DEFAULTS: Dict[str, object] = {
+    "window_name": "Sort Unlabeled",
+    "window_width": 640,
+    "window_height": 480,
+    "window_x": 100,
+    "window_y": 100,
+    "delete_rejects": False,
+    "image_extensions": [".png", ".jpg", ".jpeg"],
+}
 
 
 def gather_images(root: Path, exts: List[str]) -> List[Path]:
@@ -36,20 +29,23 @@ def gather_images(root: Path, exts: List[str]) -> List[Path]:
     return files
 
 
-def discover_labels(dest_root: Path, unlabeled_root: Path, reject_folder: str) -> List[str]:
+def discover_labels(dest_root: Path, unlabeled_root: Path, reject_path: Path) -> List[str]:
     if not dest_root.exists():
         return []
     labels: List[str] = []
-    reject_path = (dest_root / reject_folder).resolve()
     try:
         unlabeled_resolved = unlabeled_root.resolve()
     except FileNotFoundError:
         unlabeled_resolved = None
+    try:
+        reject_resolved = reject_path.resolve()
+    except FileNotFoundError:
+        reject_resolved = None
     for path in sorted(dest_root.iterdir()):
         if not path.is_dir():
             continue
         resolved = path.resolve()
-        if resolved == reject_path or (unlabeled_resolved and resolved == unlabeled_resolved):
+        if (reject_resolved and resolved == reject_resolved) or (unlabeled_resolved and resolved == unlabeled_resolved):
             continue
         labels.append(path.name)
     return labels
@@ -66,16 +62,16 @@ def move_to_label(src: Path, dest_root: Path, label: str) -> None:
     print(f"Moved {src} -> {target_path}")
 
 
-def reject_image(src: Path, dest_root: Path, reject_folder: str, delete_rejects: bool) -> None:
+def reject_image(src: Path, reject_dir: Path, delete_rejects: bool) -> None:
     if delete_rejects:
         src.unlink(missing_ok=True)
         print(f"Deleted {src}")
         return
-    reject_dir = ensure_dir(dest_root / reject_folder)
-    target_path = reject_dir / src.name
+    target_dir = ensure_dir(reject_dir)
+    target_path = target_dir / src.name
     counter = 1
     while target_path.exists():
-        target_path = reject_dir / f"{src.stem}_{counter}{src.suffix}"
+        target_path = target_dir / f"{src.stem}_{counter}{src.suffix}"
         counter += 1
     src.rename(target_path)
     print(f"Moved {src} -> {target_path}")
@@ -103,24 +99,29 @@ def cleanup_empty_dirs(start: Path, stop_at: Path) -> None:
 
 
 def main() -> None:
-    cfg = load_config()
-    unlabeled_root = Path(cfg["unlabeled_root"])
-    destination_root = Path(cfg["destination_root"])
-    known_labels = discover_labels(destination_root, unlabeled_root, cfg["reject_folder"])
+    config = load_project_config()
+    paths = resolve_paths(config)
+    sort_cfg = SORT_DEFAULTS | config.get("sorter", {})
+
+    unlabeled_root = ensure_dir(paths["unlabeled"])
+    destination_root = ensure_dir(paths["training"])
+    reject_dir = ensure_dir(paths["reject"])
+
+    known_labels = discover_labels(destination_root, unlabeled_root, reject_dir)
     if known_labels:
         print(f"Discovered labels: {', '.join(known_labels)}")
     else:
         print("No label folders detected; you will need to type label names manually.")
 
-    files = gather_images(unlabeled_root, [ext.lower() for ext in cfg["image_extensions"]])
+    files = gather_images(unlabeled_root, [ext.lower() for ext in sort_cfg["image_extensions"]])
     if not files:
         print(f"No images found in {unlabeled_root}")
         return
 
-    window_name = cfg["window_name"]
+    window_name = sort_cfg["window_name"]
     cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
-    cv2.resizeWindow(window_name, int(cfg["window_width"]), int(cfg["window_height"]))
-    cv2.moveWindow(window_name, int(cfg["window_x"]), int(cfg["window_y"]))
+    cv2.resizeWindow(window_name, int(sort_cfg["window_width"]), int(sort_cfg["window_height"]))
+    cv2.moveWindow(window_name, int(sort_cfg["window_x"]), int(sort_cfg["window_y"]))
 
     keymap = {str(idx + 1): label for idx, label in enumerate(known_labels)}
     print("Sorting session started.")
@@ -151,7 +152,7 @@ def main() -> None:
                 cv2.destroyAllWindows()
                 return
             if lower_input in {"delete", "d"}:
-                reject_image(path, destination_root, cfg["reject_folder"], cfg["delete_rejects"])
+                reject_image(path, reject_dir, bool(sort_cfg["delete_rejects"]))
                 cleanup_empty_dirs(source_parent, unlabeled_root)
                 break
             label = keymap.get(user_input, user_input)

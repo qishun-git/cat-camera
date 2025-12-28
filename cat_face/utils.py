@@ -12,6 +12,7 @@ import yaml
 DATA_DIR = Path("data")
 MODEL_DIR = Path("models")
 CONFIG_DIR = Path("configs")
+PROJECT_CONFIG_FILE = CONFIG_DIR / "cat_face.yaml"
 
 
 def ensure_dir(path: Path | str) -> Path:
@@ -92,3 +93,33 @@ def rotate_files(directory: Path, limit: int) -> int:
         except OSError as exc:
             print(f"Warning: failed to delete {oldest}: {exc}")
     return removed
+
+
+def load_project_config(path: Path | str | None = None) -> Dict[str, Any]:
+    """Load the unified project configuration."""
+    config_path = Path(path) if path else PROJECT_CONFIG_FILE
+    return load_yaml(config_path)
+
+
+def _expand_path(value: str | Path | None, default: Path) -> Path:
+    if value:
+        return Path(value).expanduser()
+    return default
+
+
+def resolve_paths(config: Dict[str, Any]) -> Dict[str, Path]:
+    """Resolve common paths defined in the project config."""
+    paths_cfg = config.get("paths", {})
+    base = _expand_path(paths_cfg.get("base_data_dir"), DATA_DIR)
+    unlabeled_default = base / "unlabeled"
+    training_default = base / "training"
+    reject_default = base / "rejected"
+    models_default = _expand_path(paths_cfg.get("models_dir"), MODEL_DIR)
+    resolved = {
+        "base": base,
+        "unlabeled": _expand_path(paths_cfg.get("unlabeled_dir"), unlabeled_default),
+        "training": _expand_path(paths_cfg.get("training_dir"), training_default),
+        "reject": _expand_path(paths_cfg.get("reject_dir"), reject_default),
+        "models": models_default,
+    }
+    return resolved

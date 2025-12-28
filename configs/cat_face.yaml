@@ -1,0 +1,74 @@
+# Global cat face project configuration.
+paths:
+  # Root directory that holds all dataset folders.
+  base_data_dir: data
+  # Destination for unlabeled captures (may live under base_data_dir).
+  unlabeled_dir: data/unlabeled
+  # Destination for labeled training images.
+  training_dir: data/training
+  # Directory for rejected images when sorting.
+  reject_dir: data/rejected
+  # Directory that stores trained models and label maps.
+  models_dir: models
+
+capture:
+  # Capture mode: "labeled" saves to a specific cat folder, "unlabeled" to sessions.
+  mode: unlabeled
+  # Camera index passed to OpenCV VideoCapture.
+  camera_index: 0
+  # Optional cascade path; blank uses OpenCV's bundled cat cascade.
+  cascade: ""
+  # Size (pixels) to which faces are resized before saving.
+  size: 100
+  # Scale factor for cascade detectMultiScale.
+  scale_factor: 1.1
+  # Min neighbors for cascade detection.
+  min_neighbors: 5
+  # Minimum detection window size.
+  min_size: 250
+  # Whether to display the capture preview window.
+  display_window: true
+  # Automatically create session subfolders for unlabeled capture.
+  auto_session_subfolders: true
+  # Maximum number of images to keep per labeled cat.
+  max_images_per_cat: 500
+  # Maximum number of unlabeled images per session.
+  max_unlabeled_images: 1000
+
+sorter:
+  # Title for the sorting window.
+  window_name: Sort Unlabeled
+  # Sorter window width in pixels.
+  window_width: 640
+  # Sorter window height in pixels.
+  window_height: 480
+  # Initial X coordinate for the sorter window.
+  window_x: 100
+  # Initial Y coordinate for the sorter window.
+  window_y: 100
+  # Whether rejects are deleted from disk.
+  delete_rejects: false
+  # Image extensions the sorter will display.
+  image_extensions: [".png", ".jpg", ".jpeg"]
+
+training:
+  # Face size used for training (matches capture resize).
+  size: 100
+  # LBPH radius hyperparameter.
+  radius: 2
+  # LBPH neighbors hyperparameter.
+  neighbors: 8
+  # LBPH grid size in X dimension.
+  grid_x: 8
+  # LBPH grid size in Y dimension.
+  grid_y: 8
+  # Confidence threshold used during training and optionally recognition.
+  threshold: 80.0
+  # Model filename saved under paths.models_dir.
+  model_filename: lbph_model.xml
+  # Label map filename saved under paths.models_dir.
+  labels_filename: labels.json
+
+recognition:
+  # LBPH confidence threshold applied by recognize_live.py (falls back to training threshold).
+  threshold: 80.0

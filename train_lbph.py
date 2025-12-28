@@ -1,37 +1,19 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Dict, List, Tuple
 
 import cv2
 import numpy as np
 
 from cat_face.utils import (
-    CONFIG_DIR,
-    DATA_DIR,
-    MODEL_DIR,
     ensure_dir,
     iter_image_files,
-    load_yaml,
+    load_project_config,
     preprocess_face,
+    resolve_paths,
     save_label_map,
 )
-
-CONFIG_PATH = CONFIG_DIR / "train.yaml"
-
-
-def load_config(path: Path = CONFIG_PATH) -> Dict[str, Any]:
-    cfg = load_yaml(path)
-    cfg.setdefault("data_dir", str(DATA_DIR))
-    cfg.setdefault("model_path", str(MODEL_DIR / "lbph_model.xml"))
-    cfg.setdefault("labels_path", str(MODEL_DIR / "labels.json"))
-    cfg.setdefault("size", 100)
-    cfg.setdefault("radius", 2)
-    cfg.setdefault("neighbors", 8)
-    cfg.setdefault("grid_x", 8)
-    cfg.setdefault("grid_y", 8)
-    cfg.setdefault("threshold", 80.0)
-    return cfg
 
 
 def load_dataset(data_dir: Path, size: int) -> Tuple[List[np.ndarray], List[int], Dict[int, str]]:
@@ -62,22 +44,35 @@ def load_dataset(data_dir: Path, size: int) -> Tuple[List[np.ndarray], List[int]
 
 
 def main() -> None:
-    cfg = load_config()
-    data_dir = Path(cfg["data_dir"])
-    images, labels, label_map = load_dataset(data_dir, int(cfg["size"]))
+    config = load_project_config()
+    paths = resolve_paths(config)
+    defaults = {
+        "size": 100,
+        "radius": 2,
+        "neighbors": 8,
+        "grid_x": 8,
+        "grid_y": 8,
+        "threshold": 80.0,
+        "model_filename": "lbph_model.xml",
+        "labels_filename": "labels.json",
+    }
+    train_cfg = defaults | config.get("training", {})
+
+    data_dir = Path(train_cfg.get("data_dir", paths["training"]))
+    images, labels, label_map = load_dataset(data_dir, int(train_cfg["size"]))
 
     recognizer = cv2.face.LBPHFaceRecognizer_create(
-        radius=int(cfg["radius"]),
-        neighbors=int(cfg["neighbors"]),
-        grid_x=int(cfg["grid_x"]),
-        grid_y=int(cfg["grid_y"]),
+        radius=int(train_cfg["radius"]),
+        neighbors=int(train_cfg["neighbors"]),
+        grid_x=int(train_cfg["grid_x"]),
+        grid_y=int(train_cfg["grid_y"]),
     )
-    recognizer.setThreshold(float(cfg["threshold"]))
+    recognizer.setThreshold(float(train_cfg["threshold"]))
     recognizer.train(images, np.array(labels))
 
-    model_path = Path(cfg["model_path"])
-    labels_path = Path(cfg["labels_path"])
-    ensure_dir(model_path.parent)
+    models_dir = ensure_dir(paths["models"])
+    model_path = models_dir / train_cfg["model_filename"]
+    labels_path = models_dir / train_cfg["labels_filename"]
     recognizer.write(str(model_path))
     save_label_map(label_map, labels_path)
 
