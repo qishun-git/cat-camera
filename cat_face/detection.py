@@ -64,14 +64,21 @@ class YoloOnnxDetector(BaseDetector):
             raise RuntimeError("YOLO detector requires onnxruntime; install it via pip.")
         if not model_path.exists():
             raise FileNotFoundError(f"YOLO model not found: {model_path}")
-        self.input_size = input_size
+        self.input_size = (int(input_size[0]), int(input_size[1]))
         self.class_ids = set(int(cid) for cid in class_ids) if class_ids else None
         self.conf_threshold = float(conf_threshold)
         self.iou_threshold = float(iou_threshold)
         sess_opts = ort.SessionOptions()
         session_providers = list(providers) if providers else None
         self.session = ort.InferenceSession(str(model_path), sess_opts, providers=session_providers)
-        self.input_name = self.session.get_inputs()[0].name
+        input_meta = self.session.get_inputs()[0]
+        self.input_name = input_meta.name
+        self.input_type = getattr(input_meta, "type", "tensor(float)")
+        shape = getattr(input_meta, "shape", None)
+        if shape and len(shape) == 4:
+            _, _, h_dim, w_dim = shape
+            if isinstance(h_dim, (int, np.integer)) and isinstance(w_dim, (int, np.integer)) and h_dim > 0 and w_dim > 0:
+                self.input_size = (int(h_dim), int(w_dim))
 
     def detect(self, frame: np.ndarray) -> List[Box]:
         processed, ratio, pad = self._prepare_input(frame)
@@ -115,6 +122,8 @@ class YoloOnnxDetector(BaseDetector):
         rgb = cv2.cvtColor(padded, cv2.COLOR_BGR2RGB)
         tensor = rgb.astype(np.float32) / 255.0
         tensor = np.transpose(tensor, (2, 0, 1))[None, ...]
+        if self.input_type == "tensor(float16)":
+            tensor = tensor.astype(np.float16)
         return tensor, scale, (dw, dh)
 
     def _xywh_to_x1y1x2y2(
@@ -168,21 +177,6 @@ class YoloOnnxDetector(BaseDetector):
         return inter / union
 
 
-def _resolve_cascade_params(mode_cfg: Dict[str, object], detection_cfg: Dict[str, object]) -> CascadeParams:
-    cascade_override = detection_cfg.get("cascade_path") if detection_cfg else None
-    if isinstance(cascade_override, str) and cascade_override:
-        cascade_path = Path(cascade_override)
-    else:
-        override = mode_cfg.get("cascade")
-        cascade_path = Path(str(override)) if override else default_cascade_path()
-    return CascadeParams(
-        cascade_path=cascade_path,
-        scale_factor=float(mode_cfg.get("scale_factor", 1.1)),
-        min_neighbors=int(mode_cfg.get("min_neighbors", 3)),
-        min_size=int(mode_cfg.get("min_size", 60)),
-    )
-
-
 def _resolve_input_size(value: object) -> Tuple[int, int]:
     if isinstance(value, (list, tuple)) and len(value) == 2:
         width, height = int(value[0]), int(value[1])
@@ -191,22 +185,21 @@ def _resolve_input_size(value: object) -> Tuple[int, int]:
     return size, size
 
 
-def create_detector(
-    mode_cfg: Dict[str, object],
-    detection_cfg: Optional[Dict[str, object]],
-) -> BaseDetector:
-    detection_cfg = detection_cfg or {}
-    detector_type = str(detection_cfg.get("type", "cascade")).lower()
+def create_detector(detection_cfg: Optional[Dict[str, object]]) -> BaseDetector:
+    cfg = detection_cfg or {}
+    detector_type = str(cfg.get("type", "cascade")).lower()
     if detector_type == "yolo":
-        yolo_model = detection_cfg.get("yolo_model")
+        yolo_cfg = cfg.get("yolo", {})
+        yolo_model = yolo_cfg.get("model") or cfg.get("yolo_model")
         if not yolo_model:
-            raise ValueError("YOLO detector requires 'yolo_model' path in config.")
+            raise ValueError("YOLO detector requires 'yolo_model' (or detection.yolo.model) path in config.")
         model_path = Path(str(yolo_model)).expanduser()
-        input_size = _resolve_input_size(detection_cfg.get("yolo_input_size", 320))
-        class_ids = detection_cfg.get("yolo_class_ids")
-        conf_threshold = detection_cfg.get("yolo_conf_threshold", 0.25)
-        iou_threshold = detection_cfg.get("yolo_iou_threshold", 0.45)
-        providers = detection_cfg.get("onnx_providers")
+        input_size_value = yolo_cfg.get("input_size", cfg.get("yolo_input_size", 320))
+        input_size = _resolve_input_size(input_size_value)
+        class_ids = yolo_cfg.get("class_ids", cfg.get("yolo_class_ids"))
+        conf_threshold = yolo_cfg.get("conf_threshold", cfg.get("yolo_conf_threshold", 0.25))
+        iou_threshold = yolo_cfg.get("iou_threshold", cfg.get("yolo_iou_threshold", 0.45))
+        providers = yolo_cfg.get("providers", cfg.get("onnx_providers"))
         if isinstance(providers, str):
             providers = [providers]
         return YoloOnnxDetector(
@@ -217,5 +210,16 @@ def create_detector(
             iou_threshold=float(iou_threshold),
             providers=providers,
         )
-    cascade_params = _resolve_cascade_params(mode_cfg, detection_cfg)
-    return CascadeDetector(cascade_params)
+    cascade_cfg = cfg.get("cascade", {})
+    cascade_path_value = cascade_cfg.get("path") or cascade_cfg.get("cascade_path") or cfg.get("cascade_path")
+    cascade_path = Path(str(cascade_path_value)) if cascade_path_value else default_cascade_path()
+    scale_factor = float(cascade_cfg.get("scale_factor", cfg.get("scale_factor", 1.1)))
+    min_neighbors = int(cascade_cfg.get("min_neighbors", cfg.get("min_neighbors", 3)))
+    min_size = int(cascade_cfg.get("min_size", cfg.get("min_size", 60)))
+    params = CascadeParams(
+        cascade_path=cascade_path,
+        scale_factor=scale_factor,
+        min_neighbors=min_neighbors,
+        min_size=min_size,
+    )
+    return CascadeDetector(params)

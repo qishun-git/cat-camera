@@ -3,18 +3,13 @@ from __future__ import annotations
 import argparse
 import time
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
 import cv2
 
 from cat_face.detection import create_detector
-from cat_face.utils import (
-    ensure_dir,
-    load_project_config,
-    preprocess_face,
-    resolve_paths,
-    rotate_files,
-)
+from cat_face.utils import ensure_dir, load_project_config, preprocess_face, resolve_paths, rotate_files
 
 
 def parse_args() -> argparse.Namespace:
@@ -29,20 +24,21 @@ def parse_args() -> argparse.Namespace:
 def load_capture_settings(cli_cat_name: Optional[str] = None) -> Tuple[Dict[str, Any], Dict[str, Path], Optional[str], Dict[str, Any]]:
     config = load_project_config()
     paths = resolve_paths(config)
+    vision_defaults = {
+        "camera_index": 0,
+        "face_size": 100,
+    }
+    vision_cfg = vision_defaults | config.get("vision", {})
     defaults = {
         "mode": "labeled",
-        "camera_index": 0,
-        "cascade": "",
-        "size": 100,
-        "scale_factor": 1.1,
-        "min_neighbors": 3,
-        "min_size": 60,
         "display_window": True,
         "auto_session_subfolders": True,
         "max_images_per_cat": 500,
         "max_unlabeled_images": 1000,
     }
     capture_cfg = defaults | config.get("capture", {})
+    capture_cfg["camera_index"] = vision_cfg["camera_index"]
+    capture_cfg["size"] = vision_cfg["face_size"]
     configured_name = capture_cfg.get("cat_name")
     active_cat_name = cli_cat_name or configured_name
     return capture_cfg, paths, active_cat_name, config
@@ -65,7 +61,7 @@ def main() -> None:
     args = parse_args()
     cfg, paths, cat_name, config = load_capture_settings(args.cat_name)
     output_dir = resolve_output(cfg, paths, cat_name)
-    detector = create_detector(cfg, config.get("detection"))
+    detector = create_detector(config.get("detection"))
     cap = cv2.VideoCapture(int(cfg["camera_index"]))
     if not cap.isOpened():
         raise RuntimeError(f"Unable to open camera index {cfg['camera_index']}")

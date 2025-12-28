@@ -88,10 +88,10 @@ def split_dataset(
 def main() -> None:
     config = load_project_config()
     paths = resolve_paths(config)
-    capture_defaults = {
-        "size": 100,
+    vision_defaults = {
+        "face_size": 100,
     }
-    capture_cfg = capture_defaults | config.get("capture", {})
+    vision_cfg = vision_defaults | config.get("vision", {})
     defaults = {
         "radius": 2,
         "neighbors": 8,
@@ -105,7 +105,7 @@ def main() -> None:
     train_cfg = defaults | config.get("training", {})
 
     data_dir = Path(train_cfg.get("data_dir", paths["training"]))
-    face_size = int(capture_cfg["size"])
+    face_size = int(vision_cfg["face_size"])
     images, labels, label_map = load_dataset(data_dir, face_size)
     (
         train_images,
