@@ -1,5 +1,5 @@
 # LBPH training configuration.
-data_dir: data  # Directory containing one subfolder per cat.
+data_dir: data/training  # Directory containing one subfolder per cat.
 model_path: models/lbph_model.xml  # Where to save the trained LBPH model.
 labels_path: models/labels.json  # Where to save the label-id mapping.
 size: 100  # Image size expected by the recognizer.

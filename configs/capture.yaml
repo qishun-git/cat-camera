@@ -1,7 +1,7 @@
 # Cat face capture configuration.
 capture_mode: unlabeled  # labeled|unlabeled: saves under cat_name or unlabeled sessions.
 cat_name: test  # Folder label used when saving samples (ignored in unlabeled mode).
-output: data  # Root directory where class folders are created.
+output: data  # Base directory for captures (unlabeled sessions live under data/unlabeled).
 camera_index: 0  # VideoCapture source index or RTSP URL converted to int.
 cascade: ""  # Optional path to haarcascade_frontalcatface(_extended).xml; leave blank for default.
 size: 100  # Saved crop size in pixels (square).

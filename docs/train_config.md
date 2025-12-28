@@ -2,7 +2,7 @@
 
 | Key | Description | Typical values |
 | --- | --- | --- |
-| `data_dir` | Root directory where each cat has its own subfolder of preprocessed images. | `"data"` |
+| `data_dir` | Root directory where each cat has its own subfolder of preprocessed images. | `"data/training"` |
 | `model_path` | Destination file for the trained LBPH model (`.xml`). | `"models/lbph_model.xml"` |
 | `labels_path` | JSON file storing the integer label to class-name mapping. | `"models/labels.json"` |
 | `size` | Image size expected by the recognizer; must match the capture/preprocessing size. | `100` |
