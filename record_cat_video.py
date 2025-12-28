@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import time
-from collections import deque
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Deque, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 import cv2
 
@@ -11,25 +11,144 @@ from cat_face.detection import create_detector
 from cat_face.utils import ensure_dir, load_project_config, resolve_paths
 
 
+@dataclass
+class RecorderConfig:
+    output_dir: Path
+    min_duration: float
+    max_duration: float
+    cooldown: float
+    absence_grace: float
+    fps_override: Optional[float]
+    codec: str
+    show_window: bool
+
+    @classmethod
+    def from_project(cls, project_config: Dict[str, Any], base_path: Path) -> "RecorderConfig":
+        defaults = {
+            "output_dir": str(base_path / "clips"),
+            "min_duration": 15.0,
+            "max_duration": 30.0,
+            "cooldown": 5.0,
+            "absence_grace": 1.0,
+            "fps": 0.0,
+            "codec": "mp4v",
+            "show_window": False,
+        }
+        raw_cfg = defaults | (project_config.get("recorder") or {})
+        min_duration = max(float(raw_cfg["min_duration"]), 0.0)
+        max_duration = max(float(raw_cfg["max_duration"]), min_duration)
+        cooldown = max(float(raw_cfg["cooldown"]), 0.0)
+        absence_grace = max(float(raw_cfg["absence_grace"]), 0.0)
+        fps_value = float(raw_cfg.get("fps", 0.0))
+        fps_override = fps_value if fps_value > 0 else None
+        output_dir = ensure_dir(Path(str(raw_cfg["output_dir"])))
+
+        return cls(
+            output_dir=output_dir,
+            min_duration=min_duration,
+            max_duration=max_duration,
+            cooldown=cooldown,
+            absence_grace=absence_grace,
+            fps_override=fps_override,
+            codec=str(raw_cfg.get("codec", "mp4v")),
+            show_window=bool(raw_cfg.get("show_window", False)),
+        )
+
+
+@dataclass
+class ClipSession:
+    writer: cv2.VideoWriter
+    final_path: Path
+    temp_path: Path
+    fps: float
+    start_time: float
+    last_detection_time: float
+    frames: List[Any] = field(default_factory=list)
+
+    def append_frame(self, frame: Any) -> None:
+        self.frames.append(frame.copy())
+
+    def duration(self, now: float) -> float:
+        return now - self.start_time
+
+    def since_last_detection(self, now: float) -> float:
+        return now - self.last_detection_time
+
+    def mark_detection(self, timestamp: float) -> None:
+        self.last_detection_time = timestamp
+
+    def clear_frames(self) -> None:
+        self.frames.clear()
+
+
 def timestamp_name() -> str:
     return time.strftime("%Y%m%d-%H%M%S")
+
+
+def create_clip_session(
+    frame: Any,
+    now: float,
+    cfg: RecorderConfig,
+    fourcc: int,
+    cap: cv2.VideoCapture,
+) -> ClipSession:
+    clip_name = f"cat_{timestamp_name()}.mp4"
+    final_path = cfg.output_dir / clip_name
+    temp_path = cfg.output_dir / f"{final_path.stem}_tmp{final_path.suffix}"
+
+    frame_height, frame_width = frame.shape[:2]
+    fps = cfg.fps_override or cap.get(cv2.CAP_PROP_FPS) or 30.0
+    writer = cv2.VideoWriter(str(temp_path), fourcc, fps, (frame_width, frame_height))
+    if not writer.isOpened():
+        raise RuntimeError("Unable to create video writer for clip recording.")
+
+    return ClipSession(
+        writer=writer,
+        final_path=final_path,
+        temp_path=temp_path,
+        fps=fps,
+        start_time=now,
+        last_detection_time=now,
+    )
+
+
+def _write_frames(session: ClipSession) -> None:
+    for frame in session.frames:
+        session.writer.write(frame)
+    session.clear_frames()
+
+
+def _promote_clip(temp_path: Path, final_path: Path) -> Path:
+    if not temp_path.exists():
+        print(f"Warning: temp clip missing for {final_path}")
+        return final_path
+    try:
+        temp_path.rename(final_path)
+    except OSError as exc:
+        print(f"Warning: failed to rename temp clip {temp_path}: {exc}")
+    return final_path
+
+
+def finalize_clip(session: ClipSession, reason: str) -> None:
+    _write_frames(session)
+    session.writer.release()
+    saved_path = _promote_clip(session.temp_path, session.final_path)
+    print(f"Recording saved ({reason}): {saved_path}")
+
+
+def discard_clip(session: ClipSession, message: str) -> None:
+    session.writer.release()
+    session.clear_frames()
+    if session.temp_path.exists():
+        session.temp_path.unlink(missing_ok=True)
+    print(message)
 
 
 def main() -> None:
     config = load_project_config()
     paths = resolve_paths(config)
-    vision_cfg = {"camera_index": 0} | config.get("vision", {})
-    recorder_defaults = {
-        "output_dir": str(paths["base"] / "clips"),
-        "min_duration": 15.0,
-        "max_duration": 30.0,
-        "cooldown": 5.0,
-        "absence_grace": 1.0,
-        "fps": 0.0,
-        "codec": "mp4v",
-        "show_window": False,
-    }
-    recorder_cfg: Dict[str, object] = recorder_defaults | config.get("recorder", {})
+    vision_cfg = {"camera_index": 0} | (config.get("vision") or {})
+    recorder_cfg = RecorderConfig.from_project(config, paths["base"])
 
     camera_index = int(vision_cfg["camera_index"])
     detector = create_detector(config.get("detection"))
@@ -37,28 +156,11 @@ def main() -> None:
     if not cap.isOpened():
         raise RuntimeError(f"Unable to open camera index {camera_index}")
 
-    output_root = ensure_dir(Path(str(recorder_cfg["output_dir"])))
-
-    enforced_min = max(float(recorder_cfg["min_duration"]), 0.0)
-    enforced_max = max(float(recorder_cfg["max_duration"]), enforced_min)
-    cooldown = max(float(recorder_cfg["cooldown"]), 0.0)
-    absence_grace = max(float(recorder_cfg.get("absence_grace", 1.0)), 0.0)
-
-    window_enabled = bool(recorder_cfg.get("show_window", False))
-
-    codec_value = str(recorder_cfg.get("codec", "mp4v"))
-    fourcc = cv2.VideoWriter_fourcc(*codec_value)
+    fourcc = cv2.VideoWriter_fourcc(*recorder_cfg.codec)
 
     print("Press Q to exit.")
     last_clip_time = 0.0
-    writer: Optional[cv2.VideoWriter] = None
-    clip_frames: Deque[Tuple[float, any]] = deque()
-    clip_start_time = 0.0
-    clip_path: Optional[Path] = None
-    clip_temp_path: Optional[Path] = None
-    last_detection_time = 0.0
-    fps_cfg = float(recorder_cfg.get("fps", 0.0))
-    fps_override = fps_cfg if fps_cfg and fps_cfg > 0 else None
+    session: Optional[ClipSession] = None
 
     try:
         while True:
@@ -71,7 +173,7 @@ def main() -> None:
             detection_boxes = detector.detect(frame)
             had_detection = len(detection_boxes) > 0
 
-            if window_enabled:
+            if recorder_cfg.show_window:
                 preview = frame.copy()
                 for (x, y, w, h) in detection_boxes:
                     cv2.rectangle(preview, (x, y), (x + w, y + h), (0, 255, 0), 2)
@@ -80,92 +182,41 @@ def main() -> None:
                     break
 
             if had_detection:
-                if writer is None:
-                    if (now - last_clip_time) >= cooldown:
-                        clip_start_time = now
-                        last_detection_time = now
-                        clip_name = f"cat_{timestamp_name()}.mp4"
-                        clip_path = output_root / clip_name
-                        clip_temp_path = output_root / f"{clip_path.stem}_tmp{clip_path.suffix}"
-                        frame_height, frame_width = frame.shape[:2]
-                        fps = fps_override or cap.get(cv2.CAP_PROP_FPS) or 30.0
-                        writer = cv2.VideoWriter(str(clip_temp_path), fourcc, fps, (frame_width, frame_height))
-                        clip_frames.clear()
-                        print(f"Recording started: {clip_temp_path} (target {enforced_min:.0f}-{enforced_max:.0f}s/{fps} fps)")
-                    else:
+                if session is None:
+                    if (now - last_clip_time) < recorder_cfg.cooldown:
                         continue
-                clip_frames.append((now, frame.copy()))
-                last_detection_time = now
-                if now - clip_start_time >= enforced_max:
-                    for _, buffered_frame in clip_frames:
-                        writer.write(buffered_frame)
-                    writer.release()
-                    writer = None
-                    if clip_temp_path and clip_temp_path.exists():
-                        try:
-                            clip_temp_path.rename(clip_path)
-                        except OSError as exc:
-                            print(f"Warning: failed to rename temp clip {clip_temp_path}: {exc}")
+                    session = create_clip_session(frame, now, recorder_cfg, fourcc, cap)
+                    print(
+                        f"Recording started: {session.temp_path} "
+                        f"(target {recorder_cfg.min_duration:.0f}-{recorder_cfg.max_duration:.0f}s/{session.fps:.1f} fps)"
+                    )
+                session.append_frame(frame)
+                session.mark_detection(now)
+                if session.duration(now) >= recorder_cfg.max_duration:
+                    finalize_clip(session, "max duration reached")
+                    session = None
                     last_clip_time = now
-                    print(f"Recording saved (max duration reached): {clip_path}")
-                    clip_path = None
-                    clip_temp_path = None
-                    clip_frames.clear()
-            elif writer is not None:
-                clip_frames.append((now, frame.copy()))
-                no_detection_elapsed = now - last_detection_time
-                clip_duration = now - clip_start_time
-                if no_detection_elapsed >= absence_grace:
-                    if clip_duration >= enforced_min:
-                        for _, buffered_frame in clip_frames:
-                            writer.write(buffered_frame)
-                        writer.release()
-                        writer = None
-                        if clip_temp_path and clip_temp_path.exists():
-                            try:
-                                clip_temp_path.rename(clip_path)
-                            except OSError as exc:
-                                print(f"Warning: failed to rename temp clip {clip_temp_path}: {exc}")
-                        last_clip_time = now
-                        print(f"Recording saved (cat left frame): {clip_path}")
-                        clip_path = None
-                        clip_temp_path = None
-                        clip_frames.clear()
+            elif session is not None:
+                session.append_frame(frame)
+                if session.since_last_detection(now) >= recorder_cfg.absence_grace:
+                    if session.duration(now) >= recorder_cfg.min_duration:
+                        finalize_clip(session, "cat left frame")
                     else:
-                        writer.release()
-                        writer = None
-                        if clip_temp_path and clip_temp_path.exists():
-                            clip_temp_path.unlink(missing_ok=True)
-                        print("Discarded clip (cat left before minimum duration).")
-                        clip_path = None
-                        clip_temp_path = None
-                        clip_frames.clear()
+                        discard_clip(session, "Discarded clip (cat left before minimum duration).")
+                    session = None
                     last_clip_time = now
-            else:
-                clip_frames.clear()
 
     finally:
-        if writer is not None:
-            if writer.isOpened() and clip_frames and (time.time() - clip_start_time) >= enforced_min:
+        if session is not None:
+            if session.duration(time.time()) >= recorder_cfg.min_duration:
                 print("Finalizing clip before exit...")
-                for _, buffered_frame in clip_frames:
-                    writer.write(buffered_frame)
-                    if clip_temp_path and clip_temp_path.exists():
-                        try:
-                            clip_temp_path.rename(clip_path)
-                        except OSError as exc:
-                            print(f"Warning: failed to rename temp clip {clip_temp_path}: {exc}")
-                print(f"Recording saved: {clip_path}")
+                finalize_clip(session, "manual stop")
             else:
-                print("Discarding unfinished clip (insufficient duration).")
-                if clip_temp_path and clip_temp_path.exists():
-                    clip_temp_path.unlink(missing_ok=True)
-            writer.release()
-        clip_path = None
-        clip_temp_path = None
+                discard_clip(session, "Discarding unfinished clip (insufficient duration).")
+            session = None
         if cap.isOpened():
             cap.release()
-        if window_enabled:
+        if recorder_cfg.show_window:
             cv2.destroyAllWindows()
 
 

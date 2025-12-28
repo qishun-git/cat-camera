@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import cv2
+import json
 
 from cat_face.detection import create_detector
 from cat_face.embedding_model import EmbeddingExtractor, EmbeddingModel, EmbeddingRecognizer
@@ -24,6 +25,44 @@ def move_unique(src: Path, dest_dir: Path) -> Path:
         counter += 1
     src.rename(dest)
     return dest
+
+
+def write_annotation_sidecar(
+    clip_path: Path,
+    highlight_label: str,
+    detection_total: int,
+    recognized_total: int,
+    recognized_majority_needed: int,
+    detection_majority_needed: int,
+    counts: Dict[str, int],
+    label_best_score: Dict[str, float],
+    frame_annotations: Dict[int, List[Tuple[Tuple[int, int, int, int], Optional[str], float]]],
+) -> None:
+    json_path = clip_path.with_suffix(f"{clip_path.suffix}.json")
+    frames_payload = {
+        str(idx): [
+            {
+                "bbox": [int(x), int(y), int(w), int(h)],
+                "label": label_name,
+                "score": float(score),
+            }
+            for ((x, y, w, h), label_name, score) in entries
+        ]
+        for idx, entries in sorted(frame_annotations.items())
+    }
+    payload = {
+        "clip": clip_path.name,
+        "highlight_label": highlight_label,
+        "detections_total": detection_total,
+        "recognized_total": recognized_total,
+        "recognized_majority_needed": recognized_majority_needed,
+        "detection_majority_needed": detection_majority_needed,
+        "label_counts": counts,
+        "label_best_scores": label_best_score,
+        "frames": frames_payload,
+    }
+    json_path.write_text(json.dumps(payload))
+    print(f"Wrote annotation sidecar: {json_path}")
 
 
 def load_recognizer(config: Dict[str, object], paths: Dict[str, Path]) -> Tuple[Optional[EmbeddingRecognizer], Dict[int, str]]:
@@ -89,8 +128,7 @@ def main() -> None:
 
         detection_samples: List[Tuple[int, int, Any]] = []
         recognized_samples: List[Tuple[str, float, Any]] = []
-        best_label: Optional[str] = None
-        best_score = float("-inf")
+        frame_annotations: Dict[int, List[Tuple[Tuple[int, int, int, int], Optional[str], float]]] = {}
         frame_index = 0
         print(f"Processing clip: {clip_path}")
         while True:
@@ -103,16 +141,76 @@ def main() -> None:
                 crop = frame[y : y + h, x : x + w]
                 processed = preprocess_face(crop, size=(face_size, face_size))
                 detection_samples.append((frame_index, idx, processed))
+                label_name: Optional[str] = None
+                score_value = 0.0
                 if recognizer:
-                    label_id, score = recognizer.predict(processed)
+                    label_id, score_value = recognizer.predict(processed)
                     if label_id != -1:
                         label_name = labels_map.get(label_id)
                         if label_name:
-                            recognized_samples.append((label_name, score, processed))
-                            if score >= recognizer.threshold + recognition_margin and score > best_score:
-                                best_label = label_name
-                                best_score = score
+                            recognized_samples.append((label_name, score_value, processed))
+                frame_annotations.setdefault(frame_index, []).append(((x, y, w, h), label_name, float(score_value)))
         cap.release()
+
+        best_label: Optional[str] = None
+        best_score = float("-inf")
+        counts: Dict[str, int] = {}
+        label_best_score: Dict[str, float] = {}
+        recognized_total = len(recognized_samples)
+        detection_total = len(detection_samples)
+        recognized_majority_needed = recognized_total // 2 + 1 if recognized_total else 0
+        detection_majority_needed = detection_total // 2 + 1 if detection_total else 0
+        if recognizer and recognized_samples:
+            for label_name, score, _ in recognized_samples:
+                counts[label_name] = counts.get(label_name, 0) + 1
+                label_best_score[label_name] = max(score, label_best_score.get(label_name, float("-inf")))
+            for label_name, count in counts.items():
+                if count < recognized_majority_needed:
+                    continue
+                if detection_total and count < detection_majority_needed:
+                    continue
+                score = label_best_score[label_name]
+                if score >= recognizer.threshold + recognition_margin and score > best_score:
+                    best_label = label_name
+                    best_score = score
+
+        summary_prefix = (
+            f"[SUMMARY] {clip_path.name}: detections={detection_total}, recognized={recognized_total}"
+        )
+        if best_label:
+            label_count = counts.get(best_label, 0)
+            print(
+                f"{summary_prefix} -> auto-labeled '{best_label}' "
+                f"(label detections {label_count}/{detection_total})"
+            )
+        else:
+            if detection_total == 0:
+                reason = "no faces detected"
+            elif not recognizer:
+                reason = "recognizer unavailable"
+            elif recognized_total == 0:
+                reason = "faces detected but none matched known cats"
+            else:
+                top_label = max(counts, key=counts.get) if counts else None
+                if top_label is None:
+                    reason = "no recognized label counts available"
+                else:
+                    top_count = counts[top_label]
+                    if top_count < recognized_majority_needed:
+                        reason = (
+                            f"no label reached majority of recognized faces "
+                            f"(top '{top_label}' {top_count}/{recognized_total})"
+                        )
+                    elif detection_total and top_count < detection_majority_needed:
+                        reason = (
+                            f"top label '{top_label}' did not cover majority of detections "
+                            f"({top_count}/{detection_total})"
+                        )
+                    else:
+                        margin = recognizer.threshold + recognition_margin
+                        score = label_best_score.get(top_label, float("-inf"))
+                        reason = f"confidence {score:.2f} below required {margin:.2f} for '{top_label}'"
+            print(f"{summary_prefix} -> left unlabeled ({reason})")
 
         saved_for_clip = 0
         if best_label:
@@ -128,7 +226,21 @@ def main() -> None:
                     filename = target_dir / f"{clip_path.stem}_auto_{idx}.png"
                     cv2.imwrite(str(filename), processed)
                 print(f"Promoted {len(candidates)} frame(s) to training/{best_label}.")
-            move_unique(clip_path, recognized_clips_root / best_label)
+            recognized_clip_path = move_unique(clip_path, recognized_clips_root / best_label)
+            try:
+                write_annotation_sidecar(
+                    recognized_clip_path,
+                    best_label,
+                    detection_total,
+                    recognized_total,
+                    recognized_majority_needed,
+                    detection_majority_needed,
+                    counts,
+                    label_best_score,
+                    frame_annotations,
+                )
+            except Exception as exc:
+                print(f"Warning: failed to write annotations for {recognized_clip_path}: {exc}")
         else:
             clip_folder = ensure_dir(paths["unlabeled"] / clip_path.stem)
             samples = detection_samples

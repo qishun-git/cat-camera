@@ -103,7 +103,7 @@ clip_processing:
   # Number of frames to promote into training when a cat is auto-recognized.
   training_refresh_count: 10
   # Additional margin above recognition threshold required for automatic recognition.
-  recognition_margin: 0.05
+  recognition_margin: 0
   # CRF used when re-encoding clips to H.265 (lower = higher quality/bigger files).
   compression_crf: 28
   # Seconds between watcher polling cycles.
