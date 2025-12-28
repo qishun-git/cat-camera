@@ -1,14 +1,11 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import cv2
 import numpy as np
-
-from cat_face.utils import default_cascade_path
 
 try:
     import onnxruntime as ort
@@ -22,32 +19,6 @@ Box = Tuple[int, int, int, int]
 class BaseDetector:
     def detect(self, frame: np.ndarray) -> List[Box]:
         raise NotImplementedError
-
-
-@dataclass
-class CascadeParams:
-    cascade_path: Path
-    scale_factor: float
-    min_neighbors: int
-    min_size: int
-
-
-class CascadeDetector(BaseDetector):
-    def __init__(self, params: CascadeParams) -> None:
-        if not params.cascade_path.exists():
-            raise FileNotFoundError(f"Cascade file not found: {params.cascade_path}")
-        self.params = params
-        self.classifier = cv2.CascadeClassifier(str(params.cascade_path))
-
-    def detect(self, frame: np.ndarray) -> List[Box]:
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        faces = self.classifier.detectMultiScale(
-            gray,
-            scaleFactor=self.params.scale_factor,
-            minNeighbors=self.params.min_neighbors,
-            minSize=(self.params.min_size, self.params.min_size),
-        )
-        return [(int(x), int(y), int(w), int(h)) for (x, y, w, h) in faces]
 
 
 class YoloOnnxDetector(BaseDetector):
@@ -187,39 +158,25 @@ def _resolve_input_size(value: object) -> Tuple[int, int]:
 
 def create_detector(detection_cfg: Optional[Dict[str, object]]) -> BaseDetector:
     cfg = detection_cfg or {}
-    detector_type = str(cfg.get("type", "cascade")).lower()
-    if detector_type == "yolo":
-        yolo_cfg = cfg.get("yolo", {})
-        yolo_model = yolo_cfg.get("model") or cfg.get("yolo_model")
-        if not yolo_model:
-            raise ValueError("YOLO detector requires 'yolo_model' (or detection.yolo.model) path in config.")
-        model_path = Path(str(yolo_model)).expanduser()
-        input_size_value = yolo_cfg.get("input_size", cfg.get("yolo_input_size", 320))
-        input_size = _resolve_input_size(input_size_value)
-        class_ids = yolo_cfg.get("class_ids", cfg.get("yolo_class_ids"))
-        conf_threshold = yolo_cfg.get("conf_threshold", cfg.get("yolo_conf_threshold", 0.25))
-        iou_threshold = yolo_cfg.get("iou_threshold", cfg.get("yolo_iou_threshold", 0.45))
-        providers = yolo_cfg.get("providers", cfg.get("onnx_providers"))
-        if isinstance(providers, str):
-            providers = [providers]
-        return YoloOnnxDetector(
-            model_path=model_path,
-            input_size=input_size,
-            class_ids=class_ids,
-            conf_threshold=float(conf_threshold),
-            iou_threshold=float(iou_threshold),
-            providers=providers,
-        )
-    cascade_cfg = cfg.get("cascade", {})
-    cascade_path_value = cascade_cfg.get("path") or cascade_cfg.get("cascade_path") or cfg.get("cascade_path")
-    cascade_path = Path(str(cascade_path_value)) if cascade_path_value else default_cascade_path()
-    scale_factor = float(cascade_cfg.get("scale_factor", cfg.get("scale_factor", 1.1)))
-    min_neighbors = int(cascade_cfg.get("min_neighbors", cfg.get("min_neighbors", 3)))
-    min_size = int(cascade_cfg.get("min_size", cfg.get("min_size", 60)))
-    params = CascadeParams(
-        cascade_path=cascade_path,
-        scale_factor=scale_factor,
-        min_neighbors=min_neighbors,
-        min_size=min_size,
+    yolo_cfg = cfg.get("yolo") if isinstance(cfg.get("yolo"), dict) else None
+    source = yolo_cfg or cfg
+    model_value = source.get("model") or cfg.get("model") or cfg.get("yolo_model")
+    if not model_value:
+        raise ValueError("Detection config must provide a YOLO ONNX model path (e.g., detection.model).")
+    model_path = Path(str(model_value)).expanduser()
+    input_size_value = source.get("input_size", cfg.get("input_size", 640))
+    input_size = _resolve_input_size(input_size_value)
+    class_ids = source.get("class_ids")
+    conf_threshold = source.get("conf_threshold", cfg.get("conf_threshold", 0.25))
+    iou_threshold = source.get("iou_threshold", cfg.get("iou_threshold", 0.45))
+    providers = source.get("providers", cfg.get("providers"))
+    if isinstance(providers, str):
+        providers = [providers]
+    return YoloOnnxDetector(
+        model_path=model_path,
+        input_size=input_size,
+        class_ids=class_ids,
+        conf_threshold=float(conf_threshold),
+        iou_threshold=float(iou_threshold),
+        providers=providers,
     )
-    return CascadeDetector(params)

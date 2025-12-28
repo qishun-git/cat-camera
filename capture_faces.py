@@ -82,7 +82,6 @@ def main() -> None:
                 print("Frame grab failed, exiting.")
                 break
 
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             faces = detector.detect(frame)
 
             if cfg["display_window"]:
@@ -103,8 +102,8 @@ def main() -> None:
             if should_save and len(faces) > 0:
                 timestamp = int(time.time() * 1000)
                 for idx, (x, y, w, h) in enumerate(faces):
-                    cropped = gray[y : y + h, x : x + w]
-                    processed = preprocess_face(cropped, size=(int(cfg["size"]), int(cfg["size"])))
+                    color_crop = frame[y : y + h, x : x + w]
+                    processed = preprocess_face(color_crop, size=(int(cfg["size"]), int(cfg["size"])))
                     filename = output_dir / f"{label}_{timestamp}_{idx}.png"
                     cv2.imwrite(str(filename), processed)
                     saved += 1

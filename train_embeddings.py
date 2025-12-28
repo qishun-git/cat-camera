@@ -32,7 +32,7 @@ def load_dataset(data_dir: Path, size: int) -> Tuple[List[np.ndarray], List[int]
     for idx, class_dir in enumerate(class_dirs):
         label_map[idx] = class_dir.name
         for img_path in iter_image_files(class_dir):
-            img = cv2.imread(str(img_path), cv2.IMREAD_GRAYSCALE)
+            img = cv2.imread(str(img_path), cv2.IMREAD_COLOR)
             if img is None:
                 print(f"Warning: unable to read {img_path}, skipping.")
                 continue

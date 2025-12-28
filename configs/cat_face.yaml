@@ -15,7 +15,7 @@ vision:
   # Primary camera index shared by capture and recognition.
   camera_index: 0
   # Size (pixels) used for preprocessing/training/recognition.
-  face_size: 100
+  face_size: 224
 
 capture:
   # Capture mode: "labeled" saves to a specific cat folder, "unlabeled" to sessions.
@@ -30,30 +30,18 @@ capture:
   max_unlabeled_images: 1000
 
 detection:
-  # Detection backend: "cascade" (OpenCV Haar) or "yolo" (ONNX YOLOv5/YOLOv8).
-  type: cascade
-  cascade:
-    # Optional cascade path override; leave empty to use OpenCV's bundled cat cascade.
-    path: ""
-    # Scale factor for cascade detectMultiScale.
-    scale_factor: 1.1
-    # Min neighbors for cascade detection.
-    min_neighbors: 5
-    # Minimum detection window size.
-    min_size: 250
-  yolo:
-    # Path to a YOLO ONNX model (used when type: yolo). Relative paths resolve from repo root.
-    model: models/yolov5n.onnx
-    # Input image size for YOLO preprocessing (single value or [width, height]).
-    input_size: 640
-    # YOLO class IDs to keep (COCO cat is 15); empty list keeps all.
-    class_ids: [15]
-    # Minimum confidence score for YOLO detections.
-    conf_threshold: 0.25
-    # IOU threshold used during YOLO non-max suppression.
-    iou_threshold: 0.45
-    # Optional ONNX Runtime providers (e.g., ["CPUExecutionProvider"]).
-    providers: []
+  # Path to a YOLO ONNX model (relative paths resolve from repo root).
+  model: pretrained_models/yolov5n.onnx
+  # Input image size for YOLO preprocessing (single value or [width, height]).
+  input_size: 640
+  # YOLO class IDs to keep (COCO cat is 15); empty list keeps all.
+  class_ids: [15]
+  # Minimum confidence score for YOLO detections.
+  conf_threshold: 0.5
+  # IOU threshold used during YOLO non-max suppression.
+  iou_threshold: 0.45
+  # Optional ONNX Runtime providers (e.g., ["CPUExecutionProvider"]).
+  providers: []
 
 sorter:
   # Title for the sorting window.
@@ -72,33 +60,17 @@ sorter:
   image_extensions: [".png", ".jpg", ".jpeg"]
 
 training:
-  # LBPH radius hyperparameter.
-  radius: 2
-  # LBPH neighbors hyperparameter.
-  neighbors: 8
-  # LBPH grid size in X dimension.
-  grid_x: 8
-  # LBPH grid size in Y dimension.
-  grid_y: 8
-  # Confidence threshold used during training and optionally recognition.
-  threshold: 80.0
-  # Model filename saved under paths.models_dir.
-  model_filename: lbph_model.xml
   # Label map filename saved under paths.models_dir.
   labels_filename: labels.json
-  # Fraction of images per class reserved for validation reporting (0 disables validation).
-  validation_split: 0.2
   # Filename for the embedding-based recognizer (produced by train_embeddings.py).
   embedding_model_filename: embeddings.npz
   # Input size used by the embedding backbone (must match train/recognize).
   embedding_input_size: 224
 
 recognition:
-  # Recognition backend: "lbph" (OpenCV) or "embedding" (MobileNet + cosine).
-  method: lbph
-  # LBPH confidence threshold applied by recognize_live.py (falls back to training threshold).
-  threshold: 50.0
   # Embedding cosine similarity threshold when using the embedding method.
-  embedding_threshold: 0.75
+  embedding_threshold: 0.8
   # Filename for the embedding centroids (produced by train_embeddings.py).
   embedding_model_filename: embeddings.npz
+  # Label map filename (defaults to training.labels_filename).
+  labels_filename: labels.json

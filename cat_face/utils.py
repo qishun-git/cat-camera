@@ -22,20 +22,13 @@ def ensure_dir(path: Path | str) -> Path:
     return path
 
 
-def default_cascade_path(filename: str = "haarcascade_frontalcatface_extended.xml") -> Path:
-    """Return the bundled OpenCV cascade path for cat faces."""
-    cascade_dir = Path(cv2.data.haarcascades)
-    return cascade_dir / filename
-
-
 def preprocess_face(image: np.ndarray, size: Tuple[int, int] = (100, 100)) -> np.ndarray:
-    """Convert an image to grayscale, equalize, resize, and return uint8 array."""
+    """Resize a face crop to the desired size, preserving color information."""
     if image is None:
         raise ValueError("Cannot preprocess an empty image")
-    if image.ndim == 3:
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    face = cv2.equalizeHist(image)
-    face = cv2.resize(face, size, interpolation=cv2.INTER_CUBIC)
+    if image.ndim == 2:
+        image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+    face = cv2.resize(image, size, interpolation=cv2.INTER_CUBIC)
     return face.astype("uint8")
 
 
