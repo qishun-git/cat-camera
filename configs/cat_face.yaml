@@ -35,6 +35,24 @@ capture:
   # Maximum number of unlabeled images per session.
   max_unlabeled_images: 1000
 
+detection:
+  # Detection backend: "cascade" (OpenCV Haar) or "yolo" (ONNX YOLOv5/YOLOv8).
+  type: cascade
+  # Optional cascade path override; leave empty to use OpenCV's bundled cat cascade.
+  cascade_path: ""
+  # Path to a YOLO ONNX model (used when type: yolo). Relative paths resolve from repo root.
+  yolo_model: models/yolov5n_cat.onnx
+  # Input image size for YOLO preprocessing (single value or [width, height]).
+  yolo_input_size: 320
+  # YOLO class IDs to keep (COCO cat is 15); empty list keeps all.
+  yolo_class_ids: [15]
+  # Minimum confidence score for YOLO detections.
+  yolo_conf_threshold: 0.25
+  # IOU threshold used during YOLO non-max suppression.
+  yolo_iou_threshold: 0.45
+  # Optional ONNX Runtime providers (e.g., ["CPUExecutionProvider"]).
+  onnx_providers: []
+
 sorter:
   # Title for the sorting window.
   window_name: Sort Unlabeled

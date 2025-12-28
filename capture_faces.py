@@ -3,13 +3,12 @@ from __future__ import annotations
 import argparse
 import time
 from datetime import datetime
-from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
 import cv2
 
+from cat_face.detection import create_detector
 from cat_face.utils import (
-    default_cascade_path,
     ensure_dir,
     load_project_config,
     preprocess_face,
@@ -27,7 +26,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def load_capture_settings(cli_cat_name: Optional[str] = None) -> Tuple[Dict[str, Any], Dict[str, Path], Optional[str]]:
+def load_capture_settings(cli_cat_name: Optional[str] = None) -> Tuple[Dict[str, Any], Dict[str, Path], Optional[str], Dict[str, Any]]:
     config = load_project_config()
     paths = resolve_paths(config)
     defaults = {
@@ -46,7 +45,7 @@ def load_capture_settings(cli_cat_name: Optional[str] = None) -> Tuple[Dict[str,
     capture_cfg = defaults | config.get("capture", {})
     configured_name = capture_cfg.get("cat_name")
     active_cat_name = cli_cat_name or configured_name
-    return capture_cfg, paths, active_cat_name
+    return capture_cfg, paths, active_cat_name, config
 
 
 def resolve_output(cfg: Dict[str, Any], paths: Dict[str, Path], cat_name: Optional[str]) -> Path:
@@ -64,13 +63,9 @@ def resolve_output(cfg: Dict[str, Any], paths: Dict[str, Path], cat_name: Option
 
 def main() -> None:
     args = parse_args()
-    cfg, paths, cat_name = load_capture_settings(args.cat_name)
+    cfg, paths, cat_name, config = load_capture_settings(args.cat_name)
     output_dir = resolve_output(cfg, paths, cat_name)
-    cascade_path = Path(cfg["cascade"]) if cfg.get("cascade") else default_cascade_path()
-    if not cascade_path.exists():
-        raise FileNotFoundError(f"Cascade file not found: {cascade_path}")
-
-    detector = cv2.CascadeClassifier(str(cascade_path))
+    detector = create_detector(cfg, config.get("detection"))
     cap = cv2.VideoCapture(int(cfg["camera_index"]))
     if not cap.isOpened():
         raise RuntimeError(f"Unable to open camera index {cfg['camera_index']}")
@@ -92,12 +87,7 @@ def main() -> None:
                 break
 
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            faces = detector.detectMultiScale(
-                gray,
-                scaleFactor=float(cfg["scale_factor"]),
-                minNeighbors=int(cfg["min_neighbors"]),
-                minSize=(int(cfg["min_size"]), int(cfg["min_size"])),
-            )
+            faces = detector.detect(frame)
 
             if cfg["display_window"]:
                 display = frame.copy()

@@ -6,13 +6,8 @@ from typing import Dict
 
 import cv2
 
-from cat_face.utils import (
-    default_cascade_path,
-    load_label_map,
-    load_project_config,
-    preprocess_face,
-    resolve_paths,
-)
+from cat_face.detection import create_detector
+from cat_face.utils import load_label_map, load_project_config, preprocess_face, resolve_paths
 
 
 def main() -> None:
@@ -48,15 +43,11 @@ def main() -> None:
         raise FileNotFoundError(f"Label map not found: {labels_path}")
 
     labels = load_label_map(labels_path)
-    cascade_path = Path(recog_cfg["cascade"]) if recog_cfg.get("cascade") else default_cascade_path()
-    if not cascade_path.exists():
-        raise FileNotFoundError(f"Cascade file not found: {cascade_path}")
-
     recognizer = cv2.face.LBPHFaceRecognizer_create()
     recognizer.read(str(model_path))
     recognizer.setThreshold(float(recog_cfg["threshold"]))
 
-    detector = cv2.CascadeClassifier(str(cascade_path))
+    detector = create_detector(recog_cfg, config.get("detection"))
     cap = cv2.VideoCapture(int(recog_cfg["camera_index"]))
     if not cap.isOpened():
         raise RuntimeError(f"Unable to open camera index {recog_cfg['camera_index']}")
@@ -70,12 +61,7 @@ def main() -> None:
                 break
 
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            faces = detector.detectMultiScale(
-                gray,
-                scaleFactor=float(recog_cfg["scale_factor"]),
-                minNeighbors=int(recog_cfg["min_neighbors"]),
-                minSize=(int(recog_cfg["min_size"]), int(recog_cfg["min_size"])),
-            )
+            faces = detector.detect(frame)
 
             for (x, y, w, h) in faces:
                 roi = gray[y : y + h, x : x + w]
