@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block content %}
+<section>
+    <h2>Unlabeled Folders</h2>
+    {% if folders %}
+    <table>
+        <tr><th>Folder</th><th>Images</th><th>Actions</th></tr>
+        {% for folder in folders %}
+        <tr>
+            <td>{{ folder.path }}</td>
+            <td>{{ folder.count }}</td>
+            <td><a href="/unlabeled/{{ folder.path }}">Open</a></td>
+        </tr>
+        {% endfor %}
+    </table>
+    {% else %}
+    <p>All caught up! No unlabeled images.</p>
+    {% endif %}
+</section>
+{% endblock %}

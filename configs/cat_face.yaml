@@ -94,6 +94,8 @@ recorder:
   codec: mp4v
   # Whether to show a preview window while recording clips.
   show_window: true
+  # How often to run detection (seconds); 0 = every frame. Default 0.5s (~2 Hz).
+  detection_interval: 0.5
 
 clip_processing:
   # Directory containing recorded clips to process (defaults to recorder.output_dir).

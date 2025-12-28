@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block content %}
+<section>
+    <h2>Folder: {{ folder_rel }}</h2>
+    <form method="post" action="{{ request.url_for('label_folder', folder_rel=folder_rel) }}" class="form-inline">
+        <label>Label entire folder:</label>
+        <input list="labels" name="label" placeholder="label name" required>
+        <datalist id="labels">
+            {% for label in labels %}
+            <option value="{{ label }}">
+            {% endfor %}
+        </datalist>
+        <button type="submit">Apply</button>
+    </form>
+</section>
+
+<section>
+    <h3>Images</h3>
+    {% if images %}
+    <div class="grid">
+        {% for image in images %}
+        <div class="card">
+            <img src="{{ request.url_for('serve_unlabeled_image', folder_rel=folder_rel, filename=image.name) }}" alt="{{ image.name }}">
+            <p>{{ image.name }} ({{ "%.1f"|format(image.size_kb) }} KB)</p>
+            {% if image.suggestion %}
+            <p>Suggested: {{ image.suggestion }}</p>
+            {% endif %}
+            <form method="post" action="{{ request.url_for('image_action', folder_rel=folder_rel, filename=image.name) }}" class="form-inline">
+                <input type="hidden" name="action" value="to_label">
+                <input list="labels" name="label" placeholder="label name">
+                <button type="submit">Move</button>
+            </form>
+            <form method="post" action="{{ request.url_for('image_action', folder_rel=folder_rel, filename=image.name) }}">
+                <input type="hidden" name="action" value="reject">
+                <button type="submit">Reject</button>
+            </form>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <p>No images in this folder.</p>
+    {% endif %}
+</section>
+<p><a href="/unlabeled">&larr; Back to unlabeled list</a></p>
+{% endblock %}

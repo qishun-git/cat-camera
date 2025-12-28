@@ -21,6 +21,7 @@ class RecorderConfig:
     fps_override: Optional[float]
     codec: str
     show_window: bool
+    detection_interval: float
 
     @classmethod
     def from_project(cls, project_config: Dict[str, Any], base_path: Path) -> "RecorderConfig":
@@ -33,6 +34,7 @@ class RecorderConfig:
             "fps": 0.0,
             "codec": "mp4v",
             "show_window": False,
+            "detection_interval": 0.5,
         }
         raw_cfg = defaults | (project_config.get("recorder") or {})
         min_duration = max(float(raw_cfg["min_duration"]), 0.0)
@@ -41,6 +43,7 @@ class RecorderConfig:
         absence_grace = max(float(raw_cfg["absence_grace"]), 0.0)
         fps_value = float(raw_cfg.get("fps", 0.0))
         fps_override = fps_value if fps_value > 0 else None
+        detection_interval = max(float(raw_cfg.get("detection_interval", 0.5)), 0.0)
         output_dir = ensure_dir(Path(str(raw_cfg["output_dir"])))
 
         return cls(
@@ -52,6 +55,7 @@ class RecorderConfig:
             fps_override=fps_override,
             codec=str(raw_cfg.get("codec", "mp4v")),
             show_window=bool(raw_cfg.get("show_window", False)),
+            detection_interval=detection_interval,
         )
 
 
@@ -161,6 +165,9 @@ def main() -> None:
     print("Press Q to exit.")
     last_clip_time = 0.0
     session: Optional[ClipSession] = None
+    cached_boxes: List[Any] = []
+    last_detection_state = False
+    last_detection_check = 0.0
 
     try:
         while True:
@@ -170,8 +177,20 @@ def main() -> None:
                 break
 
             now = time.time()
-            detection_boxes = detector.detect(frame)
-            had_detection = len(detection_boxes) > 0
+            detection_boxes = cached_boxes
+            detection_updated = False
+            should_run_detection = (
+                recorder_cfg.detection_interval <= 0.0
+                or (now - last_detection_check) >= recorder_cfg.detection_interval
+            )
+            if should_run_detection:
+                detection_boxes = detector.detect(frame)
+                cached_boxes = detection_boxes
+                detection_updated = True
+                last_detection_check = now
+                last_detection_state = len(detection_boxes) > 0
+
+            had_detection = last_detection_state
 
             if recorder_cfg.show_window:
                 preview = frame.copy()
@@ -191,7 +210,8 @@ def main() -> None:
                         f"(target {recorder_cfg.min_duration:.0f}-{recorder_cfg.max_duration:.0f}s/{session.fps:.1f} fps)"
                     )
                 session.append_frame(frame)
-                session.mark_detection(now)
+                if detection_updated and had_detection:
+                    session.mark_detection(now)
                 if session.duration(now) >= recorder_cfg.max_duration:
                     finalize_clip(session, "max duration reached")
                     session = None
