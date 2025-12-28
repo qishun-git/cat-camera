@@ -13,7 +13,7 @@ paths:
 
 vision:
   # Primary camera index shared by capture and recognition.
-  camera_index: 0
+  camera_index: 1
   # Size (pixels) used for preprocessing/training/recognition.
   face_size: 224
 
@@ -74,3 +74,21 @@ recognition:
   embedding_model_filename: embeddings.npz
   # Label map filename (defaults to training.labels_filename).
   labels_filename: labels.json
+
+recorder:
+  # Directory where detection-triggered video clips are saved (relative paths resolve from repo base).
+  output_dir: data/clips
+  # Minimum clip length in seconds (clips shorter than this are discarded).
+  min_duration: 15.0
+  # Maximum clip length in seconds (recording stops automatically once reached).
+  max_duration: 300.0
+  # Cooldown time in seconds before another clip can be recorded.
+  cooldown: 5.0
+  # Grace period (seconds) after the last detection before ending a clip.
+  absence_grace: 5.0
+  # Preferred output FPS (0 or null falls back to camera FPS).
+  fps: 15
+  # FourCC codec used by OpenCV VideoWriter (default mp4v -> MP4-friendly capture).
+  codec: mp4v
+  # Whether to show a preview window while recording clips.
+  show_window: true
