@@ -37,11 +37,11 @@ capture:
 
 detection:
   # Detection backend: "cascade" (OpenCV Haar) or "yolo" (ONNX YOLOv5/YOLOv8).
-  type: cascade
+  type: yolo
   # Optional cascade path override; leave empty to use OpenCV's bundled cat cascade.
   cascade_path: ""
   # Path to a YOLO ONNX model (used when type: yolo). Relative paths resolve from repo root.
-  yolo_model: models/yolov5n_cat.onnx
+  yolo_model: models/yolov5n.onnx
   # Input image size for YOLO preprocessing (single value or [width, height]).
   yolo_input_size: 320
   # YOLO class IDs to keep (COCO cat is 15); empty list keeps all.
