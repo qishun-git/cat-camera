@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from typing import Dict
 
@@ -80,13 +81,21 @@ def main() -> None:
                 roi = gray[y : y + h, x : x + w]
                 processed = preprocess_face(roi, size=(int(recog_cfg["size"]), int(recog_cfg["size"])))
                 label_id, confidence = recognizer.predict(processed)
-                if confidence <= float(recog_cfg["threshold"]):
-                    name = labels.get(label_id, "unknown")
-                    color = (0, 255, 0)
-                else:
+                is_conf_finite = math.isfinite(confidence)
+                threshold = float(recog_cfg["threshold"])
+                if label_id == -1 or not is_conf_finite:
                     name = "unknown"
                     color = (0, 0, 255)
-                text = f"{name} ({confidence:.1f})"
+                    conf_text = "N/A"
+                else:
+                    if confidence <= threshold:
+                        name = labels.get(label_id, "unknown")
+                        color = (0, 255, 0)
+                    else:
+                        name = "unknown"
+                        color = (0, 0, 255)
+                    conf_text = f"{confidence:.1f}"
+                text = f"{name} ({conf_text})"
                 cv2.rectangle(frame, (x, y), (x + w, y + h), color, 2)
                 cv2.putText(frame, text, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
 

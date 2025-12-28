@@ -18,7 +18,7 @@ capture:
   camera_index: 0
   # Optional cascade path; blank uses OpenCV's bundled cat cascade.
   cascade: ""
-  # Size (pixels) to which faces are resized before saving.
+  # Size (pixels) used for preprocessing; training and recognition reuse this value.
   size: 100
   # Scale factor for cascade detectMultiScale.
   scale_factor: 1.1
@@ -52,8 +52,6 @@ sorter:
   image_extensions: [".png", ".jpg", ".jpeg"]
 
 training:
-  # Face size used for training (matches capture resize).
-  size: 100
   # LBPH radius hyperparameter.
   radius: 2
   # LBPH neighbors hyperparameter.
@@ -68,7 +66,9 @@ training:
   model_filename: lbph_model.xml
   # Label map filename saved under paths.models_dir.
   labels_filename: labels.json
+  # Fraction of images per class reserved for validation reporting (0 disables validation).
+  validation_split: 0.2
 
 recognition:
   # LBPH confidence threshold applied by recognize_live.py (falls back to training threshold).
-  threshold: 80.0
+  threshold: 50.0
