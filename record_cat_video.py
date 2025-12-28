@@ -159,6 +159,8 @@ def main() -> None:
     else:
         stream_resolution = None
     stream_quality = int(streaming_cfg.get("quality", 80))
+    show_annotations = bool(streaming_cfg.get("show_annotations", False))
+    status_path = streaming_cfg.get("status_path")
 
     camera_index = int(vision_cfg["camera_index"])
     prefer_picamera = bool(vision_cfg.get("prefer_picamera2", False))
@@ -190,6 +192,7 @@ def main() -> None:
             resolution=stream_resolution,
             quality=stream_quality,
             frame_interval=float(streaming_cfg.get("frame_interval", 0.03)),
+            status_path=str(status_path) if status_path else None,
         )
     except OSError as exc:
         print(f"Warning: unable to start MJPEG streamer: {exc}")
@@ -208,13 +211,6 @@ def main() -> None:
             if not ret:
                 print("Frame grab failed, exiting.")
                 break
-            if streamer:
-                stream_frame = frame.copy()
-                if streaming_cfg.get("show_annotations", False) and cached_boxes:
-                    for (x, y, w, h) in cached_boxes:
-                        cv2.rectangle(stream_frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
-                streamer.push_frame(stream_frame)
-
             now = time.time()
             detection_boxes = cached_boxes
             detection_updated = False
@@ -230,6 +226,13 @@ def main() -> None:
                 last_detection_state = len(detection_boxes) > 0
 
             had_detection = last_detection_state
+
+            if streamer:
+                stream_frame = frame.copy()
+                if show_annotations and detection_boxes:
+                    for (x, y, w, h) in detection_boxes:
+                        cv2.rectangle(stream_frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+                streamer.push_frame(stream_frame)
 
             if had_detection:
                 if session is None:

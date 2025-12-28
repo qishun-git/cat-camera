@@ -102,8 +102,7 @@ recorder:
   detection_interval: 0.5
 
 streaming:
-  # Enable MJPEG streaming from the recorder loop.
-  enabled: true
+  # MJPEG streamer settings shared between the recorder and web UI.
   # Interface and port for the local streamer (running inside record_cat_video).
   host: 0.0.0.0
   port: 8765
@@ -117,6 +116,8 @@ streaming:
   public_url: http://localhost:8765/stream.mjpg
   # Overlay detection boxes onto the streamed frames.
   show_annotations: true
+  # File where the recorder writes viewer count for the web UI.
+  status_path: tmp/stream_status.json
 
 clip_processing:
   # Directory containing recorded clips to process (defaults to recorder.output_dir).

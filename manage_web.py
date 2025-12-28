@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional
 
 import cv2
 from fastapi import FastAPI, Form, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 
 from cat_face.embedding_model import EmbeddingExtractor, EmbeddingModel, EmbeddingRecognizer
@@ -190,6 +190,20 @@ def stream_page(request: Request):
     streaming_cfg = STATE.config.get("streaming") or {}
     stream_url = streaming_cfg.get("public_url")
     return templates.TemplateResponse("stream.html", {"request": request, "stream_url": stream_url})
+
+
+@app.get("/stream/status")
+def stream_status():
+    streaming_cfg = STATE.config.get("streaming") or {}
+    status_path = streaming_cfg.get("status_path") or "tmp/stream_status.json"
+    streamer_path = Path(status_path)
+    if not streamer_path.exists():
+        return JSONResponse({"clients": 0})
+    try:
+        data = json.loads(streamer_path.read_text())
+    except json.JSONDecodeError:
+        data = {"clients": 0}
+    return JSONResponse(data)
 
 
 @app.get("/clips", response_class=HTMLResponse)
