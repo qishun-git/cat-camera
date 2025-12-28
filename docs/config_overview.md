@@ -10,7 +10,7 @@
 | `recognition` | `embedding_threshold`, `embedding_model_filename`, `labels_filename` | Runtime thresholds and filenames consumed by `recognize_live.py`. |
 | `detection` | `model`, `input_size`, `class_ids`, `conf_threshold`, `iou_threshold`, `providers` | YOLO (ONNX Runtime) detector configuration shared by capture, recognition, and clip recording. |
 | `recorder` | `output_dir`, `min_duration`, `max_duration`, `cooldown`, `absence_grace`, `fps`, `codec`, `show_window` | Default settings for `record_cat_video.py` (clip destination, duration bounds, cooldown, absence grace period, preview window). |
-| `clip_processing` | `clips_dir`, `save_limit` | Controls how `process_clips.py` processes saved videos (input directory, optional per-clip limit; clips always save into the unlabeled pool). |
+| `clip_processing` | `clips_dir`, `save_limit`, `training_refresh_count`, `recognition_margin`, `compression_crf`, `watch_interval` | Controls how `process_clips.py` and the clip watcher behave (clip source directory, optional per-clip sampling limit, how many frames to promote to training, recognition margin for auto-tagging, H.265 CRF, and watcher poll interval). |
 
 Update `vision.face_size` once to keep capture, training, and recognition aligned. Point `detection.model` at the YOLO ONNX file you want to run (for example, a 640×640 `yolov5n` export) and adjust `input_size`, confidence, or providers to match your hardware. Train embeddings via `python train_embeddings.py`, then set `recognition.embedding_threshold` to a value that balances precision/recall for your cats. When running `capture_faces.py` in labeled mode, supply the cat name via `--cat-name` (for example, `python capture_faces.py --cat-name whiskers`); unlabeled sessions omit that argument.
 

@@ -55,6 +55,7 @@ def main() -> None:
     clip_frames: Deque[Tuple[float, any]] = deque()
     clip_start_time = 0.0
     clip_path: Optional[Path] = None
+    clip_temp_path: Optional[Path] = None
     last_detection_time = 0.0
     fps_cfg = float(recorder_cfg.get("fps", 0.0))
     fps_override = fps_cfg if fps_cfg and fps_cfg > 0 else None
@@ -85,11 +86,12 @@ def main() -> None:
                         last_detection_time = now
                         clip_name = f"cat_{timestamp_name()}.mp4"
                         clip_path = output_root / clip_name
+                        clip_temp_path = output_root / f"{clip_path.stem}_tmp{clip_path.suffix}"
                         frame_height, frame_width = frame.shape[:2]
                         fps = fps_override or cap.get(cv2.CAP_PROP_FPS) or 30.0
-                        writer = cv2.VideoWriter(str(clip_path), fourcc, fps, (frame_width, frame_height))
+                        writer = cv2.VideoWriter(str(clip_temp_path), fourcc, fps, (frame_width, frame_height))
                         clip_frames.clear()
-                        print(f"Recording started: {clip_path} (target {enforced_min:.0f}-{enforced_max:.0f}s/{fps} fps)")
+                        print(f"Recording started: {clip_temp_path} (target {enforced_min:.0f}-{enforced_max:.0f}s/{fps} fps)")
                     else:
                         continue
                 clip_frames.append((now, frame.copy()))
@@ -99,9 +101,15 @@ def main() -> None:
                         writer.write(buffered_frame)
                     writer.release()
                     writer = None
+                    if clip_temp_path and clip_temp_path.exists():
+                        try:
+                            clip_temp_path.rename(clip_path)
+                        except OSError as exc:
+                            print(f"Warning: failed to rename temp clip {clip_temp_path}: {exc}")
                     last_clip_time = now
                     print(f"Recording saved (max duration reached): {clip_path}")
                     clip_path = None
+                    clip_temp_path = None
                     clip_frames.clear()
             elif writer is not None:
                 clip_frames.append((now, frame.copy()))
@@ -113,17 +121,24 @@ def main() -> None:
                             writer.write(buffered_frame)
                         writer.release()
                         writer = None
+                        if clip_temp_path and clip_temp_path.exists():
+                            try:
+                                clip_temp_path.rename(clip_path)
+                            except OSError as exc:
+                                print(f"Warning: failed to rename temp clip {clip_temp_path}: {exc}")
                         last_clip_time = now
                         print(f"Recording saved (cat left frame): {clip_path}")
                         clip_path = None
+                        clip_temp_path = None
                         clip_frames.clear()
                     else:
                         writer.release()
                         writer = None
-                        if clip_path and Path(clip_path).exists():
-                            Path(clip_path).unlink(missing_ok=True)
+                        if clip_temp_path and clip_temp_path.exists():
+                            clip_temp_path.unlink(missing_ok=True)
                         print("Discarded clip (cat left before minimum duration).")
                         clip_path = None
+                        clip_temp_path = None
                         clip_frames.clear()
                     last_clip_time = now
             else:
@@ -131,15 +146,25 @@ def main() -> None:
 
     finally:
         if writer is not None:
-            if clip_frames and (time.time() - clip_start_time) >= enforced_min:
+            if writer.isOpened() and clip_frames and (time.time() - clip_start_time) >= enforced_min:
                 print("Finalizing clip before exit...")
                 for _, buffered_frame in clip_frames:
                     writer.write(buffered_frame)
+                    if clip_temp_path and clip_temp_path.exists():
+                        try:
+                            clip_temp_path.rename(clip_path)
+                        except OSError as exc:
+                            print(f"Warning: failed to rename temp clip {clip_temp_path}: {exc}")
                 print(f"Recording saved: {clip_path}")
             else:
                 print("Discarding unfinished clip (insufficient duration).")
+                if clip_temp_path and clip_temp_path.exists():
+                    clip_temp_path.unlink(missing_ok=True)
             writer.release()
-        cap.release()
+        clip_path = None
+        clip_temp_path = None
+        if cap.isOpened():
+            cap.release()
         if window_enabled:
             cv2.destroyAllWindows()
 

@@ -100,3 +100,11 @@ clip_processing:
   clips_dir: data/compressed_clips
   # Optional cap on the number of faces saved per clip (null/0 for unlimited).
   save_limit: 100
+  # Number of frames to promote into training when a cat is auto-recognized.
+  training_refresh_count: 10
+  # Additional margin above recognition threshold required for automatic recognition.
+  recognition_margin: 0.05
+  # CRF used when re-encoding clips to H.265 (lower = higher quality/bigger files).
+  compression_crf: 28
+  # Seconds between watcher polling cycles.
+  watch_interval: 5.0
