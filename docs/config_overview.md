@@ -9,7 +9,7 @@
 | `training` | `labels_filename`, `embedding_model_filename`, `embedding_input_size` | Output filenames written by `train_embeddings.py` and the embedding backbone’s input size. |
 | `recognition` | `embedding_threshold`, `embedding_model_filename`, `labels_filename` | Runtime thresholds and filenames consumed by `recognize_live.py`. |
 | `detection` | `model`, `input_size`, `class_ids`, `conf_threshold`, `iou_threshold`, `providers` | YOLO (ONNX Runtime) detector configuration shared by capture, recognition, and clip recording. |
-| `recorder` | `output_dir`, `min_duration`, `max_duration`, `cooldown`, `absence_grace`, `fps`, `codec`, `show_window` | Default settings for `record_cat_video.py` (clip destination, duration bounds, cooldown, absence grace period, preview window). |
+| `recorder` | `output_dir`, `min_duration`, `max_duration`, `cooldown`, `absence_grace`, `fps`, `codec` | Default settings for `record_cat_video.py` (clip destination, duration bounds, cooldown, absence grace period, encoder options). |
 | `clip_processing` | `clips_dir`, `save_limit`, `training_refresh_count`, `recognition_margin`, `compression_crf`, `watch_interval` | Controls how `process_clips.py` and the clip watcher behave (clip source directory, optional per-clip sampling limit, how many frames to promote to training, recognition margin for auto-tagging, H.265 CRF, and watcher poll interval). |
 
 Update `vision.face_size` once to keep capture, training, and recognition aligned. Point `detection.model` at the YOLO ONNX file you want to run (for example, a 640×640 `yolov5n` export) and adjust `input_size`, confidence, or providers to match your hardware. Train embeddings via `python train_embeddings.py`, then set `recognition.embedding_threshold` to a value that balances precision/recall for your cats. When running `capture_faces.py` in labeled mode, supply the cat name via `--cat-name` (for example, `python capture_faces.py --cat-name whiskers`); unlabeled sessions omit that argument.
@@ -30,4 +30,3 @@ Update `vision.face_size` once to keep capture, training, and recognition aligne
 - `absence_grace`: Grace period (seconds) after the last detection before a clip is closed. If the cat leaves before `min_duration`, the clip is discarded.
 - `fps`: Preferred output FPS for saved clips. Set to `0` (or omit) to reuse the camera’s FPS.
 - `codec`: FourCC string passed to OpenCV’s `VideoWriter` (for MP4 output, use `mp4v`, `avc1`, etc.).
-- `show_window`: Boolean that toggles the live preview window during recording.

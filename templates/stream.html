@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block content %}
+<section>
+    <h2>Live Stream</h2>
+    {% if stream_url %}
+    <p>The preview below is served by the recorder's MJPEG streamer.</p>
+    <div class="player" style="max-width:800px;">
+        <img src="{{ stream_url }}" alt="Live stream" style="width:100%; background:#000; border:1px solid #ccc;">
+    </div>
+    {% else %}
+    <p>No stream URL configured. Set <code>streaming.public_url</code> in <code>configs/cat_face.yaml</code> to enable this view.</p>
+    {% endif %}
+</section>
+{% endblock %}

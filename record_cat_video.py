@@ -7,7 +7,9 @@ from typing import Any, Dict, List, Optional
 
 import cv2
 
+from cat_face.camera import CameraError, create_camera
 from cat_face.detection import create_detector
+from cat_face.streamer import MJPEGStreamer
 from cat_face.utils import ensure_dir, load_project_config, resolve_paths
 
 
@@ -20,7 +22,6 @@ class RecorderConfig:
     absence_grace: float
     fps_override: Optional[float]
     codec: str
-    show_window: bool
     detection_interval: float
 
     @classmethod
@@ -33,7 +34,6 @@ class RecorderConfig:
             "absence_grace": 1.0,
             "fps": 0.0,
             "codec": "mp4v",
-            "show_window": False,
             "detection_interval": 0.5,
         }
         raw_cfg = defaults | (project_config.get("recorder") or {})
@@ -54,7 +54,6 @@ class RecorderConfig:
             absence_grace=absence_grace,
             fps_override=fps_override,
             codec=str(raw_cfg.get("codec", "mp4v")),
-            show_window=bool(raw_cfg.get("show_window", False)),
             detection_interval=detection_interval,
         )
 
@@ -94,14 +93,14 @@ def create_clip_session(
     now: float,
     cfg: RecorderConfig,
     fourcc: int,
-    cap: cv2.VideoCapture,
+    camera_fps: Optional[float],
 ) -> ClipSession:
     clip_name = f"cat_{timestamp_name()}.mp4"
     final_path = cfg.output_dir / clip_name
     temp_path = cfg.output_dir / f"{final_path.stem}_tmp{final_path.suffix}"
 
     frame_height, frame_width = frame.shape[:2]
-    fps = cfg.fps_override or cap.get(cv2.CAP_PROP_FPS) or 30.0
+    fps = cfg.fps_override or camera_fps or 30.0
     writer = cv2.VideoWriter(str(temp_path), fourcc, fps, (frame_width, frame_height))
     if not writer.isOpened():
         raise RuntimeError("Unable to create video writer for clip recording.")
@@ -153,14 +152,48 @@ def main() -> None:
     paths = resolve_paths(config)
     vision_cfg = {"camera_index": 0} | (config.get("vision") or {})
     recorder_cfg = RecorderConfig.from_project(config, paths["base"])
+    streaming_cfg = config.get("streaming") or {}
+    stream_resolution = streaming_cfg.get("resolution")
+    if isinstance(stream_resolution, (list, tuple)) and len(stream_resolution) >= 2:
+        stream_resolution = (int(stream_resolution[0]), int(stream_resolution[1]))
+    else:
+        stream_resolution = None
+    stream_quality = int(streaming_cfg.get("quality", 80))
 
     camera_index = int(vision_cfg["camera_index"])
+    prefer_picamera = bool(vision_cfg.get("prefer_picamera2", False))
+    resolution_cfg = vision_cfg.get("picamera_resolution")
+    if isinstance(resolution_cfg, (list, tuple)) and len(resolution_cfg) >= 2:
+        picamera_resolution = (int(resolution_cfg[0]), int(resolution_cfg[1]))
+    else:
+        picamera_resolution = None
+    picamera_fps = vision_cfg.get("picamera_fps")
+    picamera_fps = float(picamera_fps) if picamera_fps else None
     detector = create_detector(config.get("detection"))
-    cap = cv2.VideoCapture(camera_index)
-    if not cap.isOpened():
-        raise RuntimeError(f"Unable to open camera index {camera_index}")
+    try:
+        camera = create_camera(
+            camera_index=camera_index,
+            prefer_picamera=prefer_picamera,
+            picamera_resolution=picamera_resolution,
+            picamera_fps=picamera_fps,
+        )
+    except CameraError as exc:
+        raise RuntimeError(str(exc)) from exc
 
     fourcc = cv2.VideoWriter_fourcc(*recorder_cfg.codec)
+
+    streamer: Optional[MJPEGStreamer] = None
+    try:
+        streamer = MJPEGStreamer(
+            host=str(streaming_cfg.get("host", "0.0.0.0")),
+            port=int(streaming_cfg.get("port", 8765)),
+            resolution=stream_resolution,
+            quality=stream_quality,
+            frame_interval=float(streaming_cfg.get("frame_interval", 0.03)),
+        )
+    except OSError as exc:
+        print(f"Warning: unable to start MJPEG streamer: {exc}")
+        streamer = None
 
     print("Press Q to exit.")
     last_clip_time = 0.0
@@ -171,10 +204,16 @@ def main() -> None:
 
     try:
         while True:
-            ret, frame = cap.read()
+            ret, frame = camera.read()
             if not ret:
                 print("Frame grab failed, exiting.")
                 break
+            if streamer:
+                stream_frame = frame.copy()
+                if streaming_cfg.get("show_annotations", False) and cached_boxes:
+                    for (x, y, w, h) in cached_boxes:
+                        cv2.rectangle(stream_frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+                streamer.push_frame(stream_frame)
 
             now = time.time()
             detection_boxes = cached_boxes
@@ -192,19 +231,11 @@ def main() -> None:
 
             had_detection = last_detection_state
 
-            if recorder_cfg.show_window:
-                preview = frame.copy()
-                for (x, y, w, h) in detection_boxes:
-                    cv2.rectangle(preview, (x, y), (x + w, y + h), (0, 255, 0), 2)
-                cv2.imshow("Cat Clip Recorder", preview)
-                if cv2.waitKey(1) & 0xFF == ord("q"):
-                    break
-
             if had_detection:
                 if session is None:
                     if (now - last_clip_time) < recorder_cfg.cooldown:
                         continue
-                    session = create_clip_session(frame, now, recorder_cfg, fourcc, cap)
+                    session = create_clip_session(frame, now, recorder_cfg, fourcc, camera.fps)
                     print(
                         f"Recording started: {session.temp_path} "
                         f"(target {recorder_cfg.min_duration:.0f}-{recorder_cfg.max_duration:.0f}s/{session.fps:.1f} fps)"
@@ -227,6 +258,8 @@ def main() -> None:
                     last_clip_time = now
 
     finally:
+        if streamer:
+            streamer.stop()
         if session is not None:
             if session.duration(time.time()) >= recorder_cfg.min_duration:
                 print("Finalizing clip before exit...")
@@ -234,10 +267,7 @@ def main() -> None:
             else:
                 discard_clip(session, "Discarding unfinished clip (insufficient duration).")
             session = None
-        if cap.isOpened():
-            cap.release()
-        if recorder_cfg.show_window:
-            cv2.destroyAllWindows()
+        camera.release()
 
 
 if __name__ == "__main__":

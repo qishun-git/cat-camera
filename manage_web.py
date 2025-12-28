@@ -13,7 +13,7 @@ from cat_face.embedding_model import EmbeddingExtractor, EmbeddingModel, Embeddi
 from cat_face.utils import ensure_dir, load_label_map, load_project_config, preprocess_face, resolve_paths
 
 
-app = FastAPI(title="Cat Face Manager")
+app = FastAPI(title="Pi-Cam")
 templates = Jinja2Templates(directory="templates")
 
 
@@ -62,6 +62,8 @@ class ManagerState:
 
 
 STATE = ManagerState()
+
+
 
 
 def safe_join(root: Path, relative: str) -> Path:
@@ -183,13 +185,11 @@ def cleanup_folder(folder: Path) -> None:
 
 
 @app.get("/", response_class=HTMLResponse)
-def dashboard(request: Request):
-    stats = {
-        "recognized_clips": sum(1 for _ in STATE.recognized_root.glob("**/*.mp4")),
-        "unknown_clips": sum(1 for _ in STATE.unknown_root.glob("**/*.mp4")),
-        "unlabeled_folders": sum(1 for p in STATE.unlabeled_root.iterdir() if p.is_dir()),
-    }
-    return templates.TemplateResponse("index.html", {"request": request, "stats": stats})
+@app.get("/stream", response_class=HTMLResponse)
+def stream_page(request: Request):
+    streaming_cfg = STATE.config.get("streaming") or {}
+    stream_url = streaming_cfg.get("public_url")
+    return templates.TemplateResponse("stream.html", {"request": request, "stream_url": stream_url})
 
 
 @app.get("/clips", response_class=HTMLResponse)

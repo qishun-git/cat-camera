@@ -16,6 +16,12 @@ vision:
   camera_index: 1
   # Size (pixels) used for preprocessing/training/recognition.
   face_size: 224
+  # Prefer Picamera2 on Raspberry Pi (falls back to OpenCV if unavailable).
+  prefer_picamera2: false
+  # Resolution for Picamera2 capture (width, height).
+  picamera_resolution: [1280, 720]
+  # Target FPS for Picamera2 capture.
+  picamera_fps: 30
 
 capture:
   # Capture mode: "labeled" saves to a specific cat folder, "unlabeled" to sessions.
@@ -92,10 +98,25 @@ recorder:
   fps: 15
   # FourCC codec used by OpenCV VideoWriter (default mp4v -> MP4-friendly capture).
   codec: mp4v
-  # Whether to show a preview window while recording clips.
-  show_window: true
   # How often to run detection (seconds); 0 = every frame. Default 0.5s (~2 Hz).
   detection_interval: 0.5
+
+streaming:
+  # Enable MJPEG streaming from the recorder loop.
+  enabled: true
+  # Interface and port for the local streamer (running inside record_cat_video).
+  host: 0.0.0.0
+  port: 8765
+  # Resolution for the stream preview (width, height). Leave null to reuse capture size.
+  resolution: [640, 360]
+  # JPEG quality for the preview (10-95).
+  quality: 80
+  # Minimum delay between streamed frames (seconds). 0 for as fast as possible.
+  frame_interval: 0.03
+  # Public URL that the web app should embed (typically http://<pi-ip>:port/stream.mjpg).
+  public_url: http://localhost:8765/stream.mjpg
+  # Overlay detection boxes onto the streamed frames.
+  show_annotations: true
 
 clip_processing:
   # Directory containing recorded clips to process (defaults to recorder.output_dir).
