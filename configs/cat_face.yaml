@@ -23,18 +23,6 @@ vision:
   # Target FPS for Picamera2 capture.
   picamera_fps: 30
 
-capture:
-  # Capture mode: "labeled" saves to a specific cat folder, "unlabeled" to sessions.
-  mode: unlabeled
-  # Whether to display the capture preview window.
-  display_window: true
-  # Automatically create session subfolders for unlabeled capture.
-  auto_session_subfolders: true
-  # Maximum number of images to keep per labeled cat.
-  max_images_per_cat: 500
-  # Maximum number of unlabeled images per session.
-  max_unlabeled_images: 1000
-
 detection:
   # Path to a YOLO ONNX model (relative paths resolve from repo root).
   model: pretrained_models/yolov5n.onnx

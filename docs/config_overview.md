@@ -2,9 +2,8 @@
 
 | Section | Keys | Description |
 | --- | --- | --- |
-| `paths` | `base_data_dir`, `unlabeled_dir`, `training_dir`, `reject_dir`, `models_dir` | Shared directories for capture, sorting, training, and recognition outputs. |
-| `vision` | `camera_index`, `face_size` | Shared capture/recognition camera index and face crop size (in pixels). |
-| `capture` | `mode`, `display_window`, `auto_session_subfolders`, `max_images_per_cat`, `max_unlabeled_images` | Controls how `capture_faces.py` saves data and rotates session storage. |
+| `paths` | `base_data_dir`, `unlabeled_dir`, `training_dir`, `reject_dir`, `models_dir` | Shared directories for collection, sorting, training, and recognition outputs. |
+| `vision` | `camera_index`, `face_size` | Shared camera index and face crop size (in pixels). |
 | `sorter` | `window_*`, `delete_rejects`, `image_extensions`, `per_label_limit` | UI knobs for `sort_unlabeled.py`; `per_label_limit` randomly caps each label’s images after sorting. |
 | `training` | `labels_filename`, `embedding_model_filename`, `embedding_input_size` | Output filenames written by `train_embeddings.py` and the embedding backbone’s input size. |
 | `recognition` | `embedding_threshold`, `embedding_model_filename`, `labels_filename` | Runtime thresholds and filenames consumed by `recognize_live.py`. |
@@ -12,7 +11,7 @@
 | `recorder` | `output_dir`, `min_duration`, `max_duration`, `cooldown`, `absence_grace`, `fps`, `codec` | Default settings for `record_cat_video.py` (clip destination, duration bounds, cooldown, absence grace period, encoder options). |
 | `clip_processing` | `clips_dir`, `save_limit`, `training_refresh_count`, `recognition_margin`, `compression_crf`, `watch_interval` | Controls how `process_clips.py` and the clip watcher behave (clip source directory, optional per-clip sampling limit, how many frames to promote to training, recognition margin for auto-tagging, H.265 CRF, and watcher poll interval). |
 
-Update `vision.face_size` once to keep capture, training, and recognition aligned. Point `detection.model` at the YOLO ONNX file you want to run (for example, a 640×640 `yolov5n` export) and adjust `input_size`, confidence, or providers to match your hardware. Train embeddings via `python train_embeddings.py`, then set `recognition.embedding_threshold` to a value that balances precision/recall for your cats. When running `capture_faces.py` in labeled mode, supply the cat name via `--cat-name` (for example, `python capture_faces.py --cat-name whiskers`); unlabeled sessions omit that argument.
+Update `vision.face_size` once to keep capture, training, and recognition aligned. Point `detection.model` at the YOLO ONNX file you want to run (for example, a 640×640 `yolov5n` export) and adjust `input_size`, confidence, or providers to match your hardware. Train embeddings via `python train_embeddings.py`, then set `recognition.embedding_threshold` to a value that balances precision/recall for your cats. All clip collection now flows through `record_cat_video.py`, so you no longer need a separate still-image capture step.
 
 **Detection parameter reference**
 - `model`: Filesystem path to the YOLO ONNX file. Relative paths resolve from the repo root (e.g., `models/yolov5n.onnx`).

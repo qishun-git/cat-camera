@@ -98,6 +98,7 @@ def main() -> None:
         "save_limit": None,
         "training_refresh_count": 10,
         "recognition_margin": 0.05,
+        "detection_interval": recorder_cfg.get("detection_interval", 0.5),
     } | config.get("clip_processing", {})
 
     clips_dir = Path(processing_cfg["clips_dir"] or (paths["base"] / "clips"))
@@ -120,6 +121,8 @@ def main() -> None:
         print(f"No clips found in {clips_dir}")
         return
 
+    detection_interval = float(processing_cfg.get("detection_interval", 0.5) or 0.0)
+
     for clip_path in clip_paths:
         cap = cv2.VideoCapture(str(clip_path))
         if not cap.isOpened():
@@ -131,12 +134,20 @@ def main() -> None:
         frame_annotations: Dict[int, List[Tuple[Tuple[int, int, int, int], Optional[str], float]]] = {}
         frame_index = 0
         print(f"Processing clip: {clip_path}")
+        last_detection_ts = -float("inf")
+        last_detections: List[Tuple[int, int, int, int]] = []
         while True:
             ret, frame = cap.read()
             if not ret:
                 break
             frame_index += 1
-            faces = detector.detect(frame)
+            now = frame_index / (cap.get(cv2.CAP_PROP_FPS) or 30.0)
+            if detection_interval <= 0 or (now - last_detection_ts) >= detection_interval:
+                faces = detector.detect(frame)
+                last_detection_ts = now
+                last_detections = faces
+            else:
+                faces = last_detections
             for idx, (x, y, w, h) in enumerate(faces):
                 crop = frame[y : y + h, x : x + w]
                 processed = preprocess_face(crop, size=(face_size, face_size))
