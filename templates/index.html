@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block content %}
+<section>
+    <h2>Overview</h2>
+    <table>
+        <tr><th>Recognized Clips</th><td>{{ stats.recognized_clips }}</td></tr>
+        <tr><th>Unknown Clips</th><td>{{ stats.unknown_clips }}</td></tr>
+        <tr><th>Unlabeled Folders</th><td>{{ stats.unlabeled_folders }}</td></tr>
+    </table>
+    <p>Use the navigation links above to browse clips or finish labeling unlabeled images.</p>
+</section>
+{% endblock %}

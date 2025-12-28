@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block content %}
+<section>
+    <h2>Clip: {{ clip.name }}</h2>
+    <p>Location: {{ clip }}</p>
+    <video width="640" controls>
+        <source src="{{ video_url }}" type="video/mp4">
+        Your browser does not support the video tag.
+    </video>
+</section>
+
+<section>
+    <h3>Summary</h3>
+    {% if summary %}
+    <table>
+        <tr><th>Highlight Label</th><td>{{ summary.highlight_label }}</td></tr>
+        <tr><th>Detections</th><td>{{ summary.detections_total }}</td></tr>
+        <tr><th>Recognized</th><td>{{ summary.recognized_total }}</td></tr>
+        <tr><th>Label Counts</th><td>{{ summary.label_counts }}</td></tr>
+    </table>
+    {% else %}
+    <p>No annotation summary available.</p>
+    {% endif %}
+</section>
+
+<section>
+    <h3>Manage Clip</h3>
+    <form method="post" action="{{ request.url_for('move_clip', category=category, clip_rel=clip_rel) }}" class="form-inline">
+        <input type="hidden" name="action" value="to_label">
+        <label>Move to label:</label>
+        <input list="labels" name="label" placeholder="label name">
+        <datalist id="labels">
+            {% for label in labels %}
+            <option value="{{ label }}">
+            {% endfor %}
+        </datalist>
+        <button type="submit">Move</button>
+    </form>
+    <form method="post" action="{{ request.url_for('move_clip', category=category, clip_rel=clip_rel) }}" class="form-inline">
+        <input type="hidden" name="action" value="to_unknown">
+        <button type="submit">Send to Unknown Clips</button>
+    </form>
+</section>
+
+<p><a href="/clips">&larr; Back to clips</a></p>
+{% endblock %}

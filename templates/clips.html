@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block content %}
+<section>
+    <h2>Recognized Clips</h2>
+    {% if recognized %}
+    <table>
+        <tr>
+            <th>Label</th>
+            <th>Clip</th>
+            <th>Size (MB)</th>
+            <th>Summary</th>
+            <th>Actions</th>
+        </tr>
+        {% for clip in recognized %}
+        <tr>
+            <td>{{ clip.label }}</td>
+            <td>{{ clip.path }}</td>
+            <td>{{ "%.2f"|format(clip.size_mb) }}</td>
+            <td>
+                {% if clip.summary %}
+                    {{ clip.summary.label }} | det={{ clip.summary.detections }} | rec={{ clip.summary.recognized }}
+                {% else %}
+                    &mdash;
+                {% endif %}
+            </td>
+            <td><a href="/clips/recognized/{{ clip.path }}">View</a></td>
+        </tr>
+        {% endfor %}
+    </table>
+    {% else %}
+    <p>No recognized clips yet.</p>
+    {% endif %}
+</section>
+
+<section>
+    <h2>Unknown Clips</h2>
+    {% if unknown %}
+    <table>
+        <tr>
+            <th>Folder</th>
+            <th>Clip</th>
+            <th>Size (MB)</th>
+            <th>Actions</th>
+        </tr>
+        {% for clip in unknown %}
+        <tr>
+            <td>{{ clip.label }}</td>
+            <td>{{ clip.path }}</td>
+            <td>{{ "%.2f"|format(clip.size_mb) }}</td>
+            <td><a href="/clips/unknown/{{ clip.path }}">View</a></td>
+        </tr>
+        {% endfor %}
+    </table>
+    {% else %}
+    <p>No unknown clips in queue.</p>
+    {% endif %}
+</section>
+{% endblock %}
