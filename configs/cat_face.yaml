@@ -13,15 +13,15 @@ paths:
 
 vision:
   # Primary camera index shared by capture and recognition.
-  camera_index: 1
+  camera_index: 0
   # Size (pixels) used for preprocessing/training/recognition.
   face_size: 224
   # Prefer Picamera2 on Raspberry Pi (falls back to OpenCV if unavailable).
-  prefer_picamera2: false
+  prefer_picamera2: true
   # Resolution for Picamera2 capture (width, height).
   picamera_resolution: [1280, 720]
   # Target FPS for Picamera2 capture.
-  picamera_fps: 30
+  picamera_fps: 0
 
 detection:
   # Path to a YOLO ONNX model (relative paths resolve from repo root).
