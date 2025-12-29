@@ -84,8 +84,8 @@ recorder:
   absence_grace: 5.0
   # Preferred output FPS (0 or null falls back to camera FPS).
   fps: 0
-  # FourCC codec used by OpenCV VideoWriter (default mp4v -> MP4-friendly capture).
-  codec: mp4v
+  # FourCC codec used by OpenCV VideoWriter (use avc1 for H.264 compatibility).
+  codec: avc1
 
 motion:
   # Background subtractor history (frames) for motion detection.

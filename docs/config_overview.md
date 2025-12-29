@@ -43,4 +43,4 @@ Update `vision.face_size` once to keep recording, training, and recognition alig
 - `cooldown`: Time to wait (seconds) after saving a clip before another recording may begin.
 - `absence_grace`: Grace period (seconds) after the last detection before a clip is closed. If the cat leaves before `min_duration`, the clip is discarded.
 - `fps`: Preferred output FPS for saved clips. Set to `0` (or omit) to reuse the camera’s FPS.
-- `codec`: FourCC string passed to OpenCV’s `VideoWriter` (for MP4 output, use `mp4v`, `avc1`, etc.).
+- `codec`: FourCC string passed to OpenCV’s `VideoWriter`. For broad browser support, use `avc1` (H.264). Other options like `mp4v` or `mjpg` are available but may not play in Chrome/Firefox.
