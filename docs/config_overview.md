@@ -3,15 +3,16 @@
 | Section | Keys | Description |
 | --- | --- | --- |
 | `paths` | `base_data_dir`, `unlabeled_dir`, `training_dir`, `reject_dir`, `models_dir` | Shared directories for collection, sorting, training, and recognition outputs. |
-| `vision` | `camera_index`, `face_size` | Shared camera index and face crop size (in pixels). |
+| `vision` | `camera_index`, `face_size`, `prefer_picamera2`, `picamera_resolution`, `picamera_fps` | Camera and preprocessing settings shared by the recorder, recognition, and clip processing. |
+| `motion` | `history`, `var_threshold`, `dilation_iterations`, `trigger_ratio`, `min_area`, `warmup_frames` | Background subtraction parameters that decide when `record_cat_video.py` starts/stops recording. |
 | `sorter` | `window_*`, `delete_rejects`, `image_extensions`, `per_label_limit` | UI knobs for `sort_unlabeled.py`; `per_label_limit` randomly caps each label’s images after sorting. |
 | `training` | `labels_filename`, `embedding_model_filename`, `embedding_input_size` | Output filenames written by `train_embeddings.py` and the embedding backbone’s input size. |
 | `recognition` | `embedding_threshold`, `embedding_model_filename`, `labels_filename` | Runtime thresholds and filenames consumed by `recognize_live.py`. |
-| `detection` | `model`, `input_size`, `class_ids`, `conf_threshold`, `iou_threshold`, `providers` | YOLO (ONNX Runtime) detector configuration shared by capture, recognition, and clip recording. |
+| `detection` | `model`, `input_size`, `class_ids`, `conf_threshold`, `iou_threshold`, `providers` | YOLO (ONNX Runtime) detector configuration shared by recognition and clip processing. |
 | `recorder` | `output_dir`, `min_duration`, `max_duration`, `cooldown`, `absence_grace`, `fps`, `codec` | Default settings for `record_cat_video.py` (clip destination, duration bounds, cooldown, absence grace period, encoder options). |
-| `clip_processing` | `clips_dir`, `save_limit`, `training_refresh_count`, `recognition_margin`, `compression_crf`, `watch_interval` | Controls how `process_clips.py` and the clip watcher behave (clip source directory, optional per-clip sampling limit, how many frames to promote to training, recognition margin for auto-tagging, H.265 CRF, and watcher poll interval). |
+| `clip_processing` | `clips_dir`, `save_limit`, `training_refresh_count`, `recognition_margin`, `compression_crf`, `watch_interval`, `detection_interval` | Controls how `process_clips.py` and the clip watcher behave (clip source directory, optional per-clip sampling limit, how many frames to promote to training, recognition margin for auto-tagging, H.265 CRF, watcher poll interval, and YOLO cadence when scanning clips). |
 
-Update `vision.face_size` once to keep capture, training, and recognition aligned. Point `detection.model` at the YOLO ONNX file you want to run (for example, a 640×640 `yolov5n` export) and adjust `input_size`, confidence, or providers to match your hardware. Train embeddings via `python train_embeddings.py`, then set `recognition.embedding_threshold` to a value that balances precision/recall for your cats. All clip collection now flows through `record_cat_video.py`, so you no longer need a separate still-image capture step.
+Update `vision.face_size` once to keep recording, training, and recognition aligned. Point `detection.model` at the YOLO ONNX file you want to run (for example, a 640×640 `yolov5n` export) and adjust `input_size`, confidence, or providers to match your hardware. Train embeddings via `python train_embeddings.py`, then set `recognition.embedding_threshold` to a value that balances precision/recall for your cats. All clip collection now flows through `record_cat_video.py`, which triggers on motion first and relies on clip processing to confirm cats, so there’s no separate still-image capture step.
 
 **Detection parameter reference**
 - `model`: Filesystem path to the YOLO ONNX file. Relative paths resolve from the repo root (e.g., `models/yolov5n.onnx`).
@@ -20,6 +21,15 @@ Update `vision.face_size` once to keep capture, training, and recognition aligne
 - `conf_threshold`: Minimum objectness × class score required to keep a detection. Increase to reduce false positives; decrease to detect harder examples.
 - `iou_threshold`: Intersection-over-union threshold used during non-max suppression. Lower values keep more overlapping boxes; higher values prune more aggressively.
 - `providers`: ONNX Runtime execution providers (e.g., `["CPUExecutionProvider"]`, `["CoreMLExecutionProvider"]`). Leave empty to let onnxruntime choose defaults for your platform.
+
+**Motion parameter reference**
+- `history`: Number of frames the background model keeps. Increase if motion is consistently slow; decrease if the scene changes often.
+- `var_threshold`: Higher values make the detector less sensitive to small pixel changes.
+- `dilation_iterations`: Morphological dilations applied to the foreground mask to close gaps before contour detection.
+- `trigger_ratio`: Minimum fraction of pixels that must change before we even inspect contours.
+- `min_area`: Minimum contour area (in pixels) to count as motion. Tune to ignore small flickers/noise.
+- `warmup_frames`: Number of initial frames ignored while the background model stabilizes after startup.
+- `blur_kernel`: Optional Gaussian blur kernel (odd) applied before background subtraction. Set to 0/1 to disable; small kernels (3–5) help suppress high-frequency vibration noise.
 
 **Recorder parameter reference**
 - `output_dir`: Where `record_cat_video.py` stores completed clips. Relative paths resolve from the repo root (e.g., `data/clips`).

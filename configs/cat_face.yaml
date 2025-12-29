@@ -86,8 +86,22 @@ recorder:
   fps: 15
   # FourCC codec used by OpenCV VideoWriter (default mp4v -> MP4-friendly capture).
   codec: mp4v
-  # How often to run detection (seconds); 0 = every frame. Default 0.5s (~2 Hz).
-  detection_interval: 0.5
+
+motion:
+  # Background subtractor history (frames) for motion detection.
+  history: 500
+  # Variance threshold for foreground detection (higher = less sensitive).
+  var_threshold: 25.0
+  # Number of dilation iterations applied to the foreground mask.
+  dilation_iterations: 1
+  # Minimum fraction of pixels that must change to consider motion.
+  trigger_ratio: 0.01
+  # Minimum contour area (pixels) to treat as motion.
+  min_area: 5000
+  # Number of initial frames to ignore while the background model stabilizes.
+  warmup_frames: 30
+  # Optional Gaussian blur kernel size (odd number). Set to 0/1 to disable.
+  blur_kernel: 5
 
 streaming:
   # MJPEG streamer settings shared between the recorder and web UI.
@@ -102,8 +116,6 @@ streaming:
   frame_interval: 0.03
   # Public URL that the web app should embed (typically http://<pi-ip>:port/stream.mjpg).
   public_url: http://localhost:8765/stream.mjpg
-  # Overlay detection boxes onto the streamed frames.
-  show_annotations: true
   # File where the recorder writes viewer count for the web UI.
   status_path: tmp/stream_status.json
 
@@ -120,3 +132,5 @@ clip_processing:
   compression_crf: 28
   # Seconds between watcher polling cycles.
   watch_interval: 5.0
+  # How often to run YOLO when scanning clips (seconds); 0 runs every frame.
+  detection_interval: 0.5

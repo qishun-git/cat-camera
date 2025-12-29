@@ -98,7 +98,7 @@ def main() -> None:
         "save_limit": None,
         "training_refresh_count": 10,
         "recognition_margin": 0.05,
-        "detection_interval": recorder_cfg.get("detection_interval", 0.5),
+        "detection_interval": 0.5,
     } | config.get("clip_processing", {})
 
     clips_dir = Path(processing_cfg["clips_dir"] or (paths["base"] / "clips"))
@@ -188,6 +188,13 @@ def main() -> None:
         summary_prefix = (
             f"[SUMMARY] {clip_path.name}: detections={detection_total}, recognized={recognized_total}"
         )
+        if detection_total == 0:
+            try:
+                clip_path.unlink(missing_ok=True)
+                print(f"{summary_prefix} -> deleted (no cat detections)")
+            except OSError as exc:
+                print(f"Warning: failed to delete {clip_path}: {exc}")
+            continue
         if best_label:
             label_count = counts.get(best_label, 0)
             print(
