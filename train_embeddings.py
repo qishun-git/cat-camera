@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Dict, List, Tuple
 
@@ -8,6 +9,7 @@ import numpy as np
 
 from cat_face.embedding_model import EmbeddingExtractor, EmbeddingModel, compute_centroids
 from cat_face.utils import (
+    configure_logging,
     ensure_dir,
     iter_image_files,
     load_project_config,
@@ -16,6 +18,7 @@ from cat_face.utils import (
     save_label_map,
 )
 
+logger = logging.getLogger(__name__)
 
 def load_dataset(data_dir: Path, size: int) -> Tuple[List[np.ndarray], List[int], Dict[int, str]]:
     images: List[np.ndarray] = []
@@ -34,7 +37,7 @@ def load_dataset(data_dir: Path, size: int) -> Tuple[List[np.ndarray], List[int]
         for img_path in iter_image_files(class_dir):
             img = cv2.imread(str(img_path), cv2.IMREAD_COLOR)
             if img is None:
-                print(f"Warning: unable to read {img_path}, skipping.")
+                logger.warning("Unable to read %s, skipping.", img_path)
                 continue
             processed = preprocess_face(img, size=(size, size))
             images.append(processed)
@@ -71,9 +74,10 @@ def main() -> None:
     model.save(model_path)
     save_label_map(label_map, labels_path)
 
-    print(f"Embedding model saved to {model_path}")
-    print(f"Labels saved to {labels_path}")
+    logger.info("Embedding model saved to %s", model_path)
+    logger.info("Labels saved to %s", labels_path)
 
 
 if __name__ == "__main__":
+    configure_logging()
     main()

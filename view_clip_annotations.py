@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Dict, List
 
 import cv2
 
-from cat_face.utils import ensure_dir, load_project_config, resolve_paths
+from cat_face.utils import configure_logging, ensure_dir, load_project_config, resolve_paths
+
+logger = logging.getLogger(__name__)
 
 
 def find_clips_with_annotations(root: Path) -> List[Path]:
@@ -44,12 +47,12 @@ def draw_annotations(frame, overlays, highlight_label: str) -> None:
 def play_clip(clip_path: Path, annot_data: Dict[str, object]) -> None:
     cap = cv2.VideoCapture(str(clip_path))
     if not cap.isOpened():
-        print(f"Unable to open clip: {clip_path}")
+        logger.error("Unable to open clip: %s", clip_path)
         return
     highlight_label = annot_data.get("highlight_label")
     frames = annot_data.get("frames", {})
 
-    print("Press Q to exit playback.")
+    logger.info("Press Q to exit playback.")
     frame_index = 0
     try:
         while True:
@@ -71,21 +74,21 @@ def choose_clip(clips: List[Path]) -> Path | None:
     if not clips:
         return None
     while True:
-        print("\nAvailable annotated clips:")
+        logger.info("Available annotated clips:")
         for idx, clip in enumerate(clips, start=1):
             label = clip.parent.name
-            print(f"  {idx}. [{label}] {clip.name}")
-        print("  q. Quit")
+            logger.info("  %s. [%s] %s", idx, label, clip.name)
+        logger.info("  q. Quit")
         choice = input("Select a clip to view: ").strip().lower()
         if choice in {"q", "quit", ""}:
             return None
         if not choice.isdigit():
-            print("Please enter a number or 'q' to quit.")
+            logger.info("Please enter a number or 'q' to quit.")
             continue
         index = int(choice)
         if 1 <= index <= len(clips):
             return clips[index - 1]
-        print("Invalid selection. Try again.")
+        logger.info("Invalid selection. Try again.")
 
 
 def main() -> None:
@@ -94,22 +97,23 @@ def main() -> None:
     recognized_root = ensure_dir(paths["base"] / "recognized_clips")
     clips = find_clips_with_annotations(recognized_root)
     if not clips:
-        print(f"No annotated clips found under {recognized_root}.")
+        logger.info("No annotated clips found under %s.", recognized_root)
         return
 
     while True:
         clip = choose_clip(clips)
         if clip is None:
-            print("Viewer exited.")
+            logger.info("Viewer exited.")
             return
         sidecar = clip.with_suffix(f"{clip.suffix}.json")
         try:
             data = load_annotations(sidecar)
         except FileNotFoundError:
-            print(f"Sidecar missing for {clip}: {sidecar}")
+            logger.warning("Sidecar missing for %s: %s", clip, sidecar)
             continue
         play_clip(clip, data)
 
 
 if __name__ == "__main__":
+    configure_logging()
     main()

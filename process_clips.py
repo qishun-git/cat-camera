@@ -1,15 +1,25 @@
 from __future__ import annotations
 
+import json
+import logging
 import random
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import cv2
-import json
 
 from cat_face.detection import create_detector
 from cat_face.embedding_model import EmbeddingExtractor, EmbeddingModel, EmbeddingRecognizer
-from cat_face.utils import ensure_dir, load_label_map, load_project_config, preprocess_face, resolve_paths
+from cat_face.utils import (
+    configure_logging,
+    ensure_dir,
+    load_label_map,
+    load_project_config,
+    preprocess_face,
+    resolve_paths,
+)
+
+logger = logging.getLogger(__name__)
 
 
 def iterate_clips(directory: Path) -> List[Path]:
@@ -62,7 +72,7 @@ def write_annotation_sidecar(
         "frames": frames_payload,
     }
     json_path.write_text(json.dumps(payload))
-    print(f"Wrote annotation sidecar: {json_path}")
+    logger.info("Wrote annotation sidecar: %s", json_path)
 
 
 def trim_clip_to_range(clip_path: Path, start_frame: int, end_frame: int, fps: float) -> None:
@@ -70,7 +80,7 @@ def trim_clip_to_range(clip_path: Path, start_frame: int, end_frame: int, fps: f
         return
     cap = cv2.VideoCapture(str(clip_path))
     if not cap.isOpened():
-        print(f"Warning: unable to reopen {clip_path} for trimming.")
+        logger.warning("Unable to reopen %s for trimming.", clip_path)
         return
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
@@ -108,9 +118,9 @@ def trim_clip_to_range(clip_path: Path, start_frame: int, end_frame: int, fps: f
         writer.release()
     try:
         temp_path.replace(clip_path)
-        print(f"Trimmed clip to frames {safe_start}-{safe_end}: {clip_path}")
+        logger.info("Trimmed clip to frames %s-%s: %s", safe_start, safe_end, clip_path)
     except OSError as exc:
-        print(f"Warning: failed to replace {clip_path} after trimming: {exc}")
+        logger.warning("Failed to replace %s after trimming: %s", clip_path, exc)
 
 
 def load_recognizer(config: Dict[str, object], paths: Dict[str, Path]) -> Tuple[Optional[EmbeddingRecognizer], Dict[int, str]]:
@@ -176,7 +186,7 @@ def main() -> None:
     for clip_path in clip_paths:
         cap = cv2.VideoCapture(str(clip_path))
         if not cap.isOpened():
-            print(f"Warning: unable to open {clip_path}, skipping.")
+            logger.warning("Unable to open %s, skipping.", clip_path)
             continue
 
         detection_samples: List[Tuple[int, int, Any]] = []
@@ -184,7 +194,7 @@ def main() -> None:
         frame_annotations: Dict[int, List[Tuple[Tuple[int, int, int, int], Optional[str], float]]] = {}
         frame_index = 0
         clip_fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
-        print(f"Processing clip: {clip_path}")
+        logger.info("Processing clip: %s", clip_path)
         last_detection_ts = -float("inf")
         last_detections: List[Tuple[int, int, int, int]] = []
         while True:
@@ -240,9 +250,9 @@ def main() -> None:
         if detection_total == 0:
             try:
                 clip_path.unlink(missing_ok=True)
-                print(f"[SUMMARY] {clip_path.name}: detections=0 -> deleted (no cat detections)")
+                logger.info("[SUMMARY] %s: detections=0 -> deleted (no cat detections)", clip_path.name)
             except OSError as exc:
-                print(f"Warning: failed to delete {clip_path}: {exc}")
+                logger.warning("Failed to delete %s: %s", clip_path, exc)
             continue
 
         padding_frames = int(round(trim_padding * (clip_fps or 30.0)))
@@ -260,9 +270,12 @@ def main() -> None:
         )
         if best_label:
             label_count = counts.get(best_label, 0)
-            print(
-                f"{summary_prefix} -> auto-labeled '{best_label}' "
-                f"(label detections {label_count}/{detection_total})"
+            logger.info(
+                "%s -> auto-labeled '%s' (label detections %s/%s)",
+                summary_prefix,
+                best_label,
+                label_count,
+                detection_total,
             )
         else:
             if not recognizer:
@@ -289,7 +302,7 @@ def main() -> None:
                         margin = recognizer.threshold + recognition_margin
                         score = label_best_score.get(top_label, float("-inf"))
                         reason = f"confidence {score:.2f} below required {margin:.2f} for '{top_label}'"
-            print(f"{summary_prefix} -> left unlabeled ({reason})")
+                logger.info("%s -> left unlabeled (%s)", summary_prefix, reason)
 
         saved_for_clip = 0
         if best_label:
@@ -304,7 +317,7 @@ def main() -> None:
                 for idx, processed in enumerate(candidates):
                     filename = target_dir / f"{clip_path.stem}_auto_{idx}.png"
                     cv2.imwrite(str(filename), processed)
-                print(f"Promoted {len(candidates)} frame(s) to training/{best_label}.")
+                logger.info("Promoted %s frame(s) to training/%s.", len(candidates), best_label)
             recognized_clip_path = move_unique(clip_path, recognized_clips_root / best_label)
             try:
                 write_annotation_sidecar(
@@ -319,7 +332,7 @@ def main() -> None:
                     frame_annotations,
                 )
             except Exception as exc:
-                print(f"Warning: failed to write annotations for {recognized_clip_path}: {exc}")
+                logger.warning("Failed to write annotations for %s: %s", recognized_clip_path, exc)
         else:
             clip_folder = ensure_dir(paths["unlabeled"] / clip_path.stem)
             samples = detection_samples
@@ -331,13 +344,14 @@ def main() -> None:
                 saved_for_clip += 1
             if samples:
                 total_saved += saved_for_clip
-                print(f"Saved {saved_for_clip} face(s) from {clip_path} into {clip_folder}.")
+                logger.info("Saved %s face(s) from %s into %s.", saved_for_clip, clip_path, clip_folder)
             else:
-                print(f"No faces extracted from {clip_path}.")
+                logger.info("No faces extracted from %s.", clip_path)
             move_unique(clip_path, unknown_clips_root)
 
-    print(f"Done. Total unlabeled faces saved: {total_saved}")
+    logger.info("Done. Total unlabeled faces saved: %s", total_saved)
 
 
 if __name__ == "__main__":
+    configure_logging()
     main()

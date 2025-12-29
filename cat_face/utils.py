@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Tuple
 
@@ -14,6 +15,15 @@ MODEL_DIR = Path("models")
 CONFIG_DIR = Path("configs")
 PROJECT_CONFIG_FILE = CONFIG_DIR / "cat_face.yaml"
 
+logger = logging.getLogger(__name__)
+
+
+def configure_logging(level: int = logging.INFO) -> None:
+    """Configure global logging for CLI entrypoints."""
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
 
 def ensure_dir(path: Path | str) -> Path:
     """Create a directory if it does not exist and return it as a Path."""
@@ -84,7 +94,7 @@ def rotate_files(directory: Path, limit: int) -> int:
             oldest.unlink()
             removed += 1
         except OSError as exc:
-            print(f"Warning: failed to delete {oldest}: {exc}")
+            logger.warning("Failed to delete %s: %s", oldest, exc)
     return removed
 
 

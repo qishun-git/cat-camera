@@ -1,12 +1,22 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import cv2
 
 from cat_face.embedding_model import EmbeddingExtractor, EmbeddingModel, EmbeddingRecognizer
-from cat_face.utils import ensure_dir, load_label_map, load_project_config, preprocess_face, resolve_paths
+from cat_face.utils import (
+    configure_logging,
+    ensure_dir,
+    load_label_map,
+    load_project_config,
+    preprocess_face,
+    resolve_paths,
+)
+
+logger = logging.getLogger(__name__)
 
 SORT_DEFAULTS: Dict[str, object] = {
     "window_name": "Sort Unlabeled",
@@ -60,13 +70,13 @@ def move_to_label(src: Path, dest_root: Path, label: str) -> None:
         target_path = target_dir / f"{src.stem}_{counter}{src.suffix}"
         counter += 1
     src.rename(target_path)
-    print(f"Moved {src} -> {target_path}")
+    logger.info("Moved %s -> %s", src, target_path)
 
 
 def reject_image(src: Path, reject_dir: Path, delete_rejects: bool) -> None:
     if delete_rejects:
         src.unlink(missing_ok=True)
-        print(f"Deleted {src}")
+        logger.info("Deleted %s", src)
         return
     target_dir = ensure_dir(reject_dir)
     target_path = target_dir / src.name
@@ -75,7 +85,7 @@ def reject_image(src: Path, reject_dir: Path, delete_rejects: bool) -> None:
         target_path = target_dir / f"{src.stem}_{counter}{src.suffix}"
         counter += 1
     src.rename(target_path)
-    print(f"Moved {src} -> {target_path}")
+    logger.info("Moved %s -> %s", src, target_path)
 
 
 def cleanup_empty_dirs(start: Path, stop_at: Path) -> None:
@@ -144,7 +154,7 @@ def move_folder_to_label(folder: Path, destination_root: Path, label: str) -> No
     images = sorted(p for p in folder.glob("*") if p.is_file())
     for path in images:
         move_to_label(path, destination_root, label)
-    print(f"Moved entire folder {folder} -> label '{label}'")
+    logger.info("Moved entire folder %s -> label '%s'", folder, label)
 
 
 def main() -> None:
@@ -159,13 +169,13 @@ def main() -> None:
 
     known_labels = discover_labels(destination_root, unlabeled_root, reject_dir)
     if known_labels:
-        print(f"Discovered labels: {', '.join(known_labels)}")
+        logger.info("Discovered labels: %s", ", ".join(known_labels))
     else:
-        print("No label folders detected; you will need to type label names manually.")
+        logger.info("No label folders detected; you will need to type label names manually.")
 
     files = gather_images(unlabeled_root, [ext.lower() for ext in sort_cfg["image_extensions"]])
     if not files:
-        print(f"No images found in {unlabeled_root}")
+        logger.info("No images found in %s", unlabeled_root)
         return
 
     window_name = sort_cfg["window_name"]
@@ -175,8 +185,11 @@ def main() -> None:
 
     keymap = {str(idx + 1): label for idx, label in enumerate(known_labels)}
     recognizer, labels_map = load_recognizer(config, paths)
-    print("Sorting session started.")
-    print("Commands: enter label name, digit shortcut, 'folder <label>' to label entire folder, 'skip' to leave, 'delete'/'d' to discard, 'q' to quit.")
+    logger.info("Sorting session started.")
+    logger.info(
+        "Commands: enter label name, digit shortcut, 'folder <label>' to label entire folder, "
+        "'skip' to leave, 'delete'/'d' to discard, 'q' to quit."
+    )
 
     for path in files:
         source_parent = path.parent
@@ -184,7 +197,7 @@ def main() -> None:
             continue
         image = cv2.imread(str(path))
         if image is None:
-            print(f"Warning: unable to read {path}, skipping.")
+            logger.warning("Unable to read %s, skipping.", path)
             continue
         cv2.imshow(window_name, image)
         cv2.waitKey(1)
@@ -206,13 +219,13 @@ def main() -> None:
                 if suggestion:
                     selected_label = suggestion.split(" (", 1)[0]
                 else:
-                    print(f"Skipped {path}")
+                    logger.info("Skipped %s", path)
                     break
             if not selected_label and lower_input == "skip":
-                print(f"Skipped {path}")
+                logger.info("Skipped %s", path)
                 break
             if not selected_label and lower_input == "q":
-                print("Exiting sorter.")
+                logger.info("Exiting sorter.")
                 cv2.destroyAllWindows()
                 return
             if not selected_label and lower_input in {"delete", "d"}:
@@ -222,7 +235,7 @@ def main() -> None:
             if not selected_label and lower_input.startswith("folder"):
                 parts = user_input.split(maxsplit=1)
                 if len(parts) < 2 or not parts[1].strip():
-                    print("Usage: folder <label>")
+                    logger.info("Usage: folder <label>")
                     continue
                 folder_label = parts[1].strip()
                 move_folder_to_label(source_parent, destination_root, folder_label)
@@ -230,7 +243,7 @@ def main() -> None:
                     known_labels.append(folder_label)
                     known_labels.sort()
                     keymap = {str(idx + 1): lbl for idx, lbl in enumerate(known_labels)}
-                    print(f"Updated shortcuts: {', '.join(f'{k}->{v}' for k, v in keymap.items())}")
+                    logger.info("Updated shortcuts: %s", ", ".join(f"{k}->{v}" for k, v in keymap.items()))
                 cleanup_empty_dirs(source_parent, unlabeled_root)
                 break
             if selected_label:
@@ -238,21 +251,21 @@ def main() -> None:
             else:
                 label = keymap.get(user_input, user_input)
             if not label:
-                print("Please provide a non-empty label.")
+                logger.info("Please provide a non-empty label.")
                 continue
             move_to_label(path, destination_root, label)
             if label not in known_labels:
                 known_labels.append(label)
                 known_labels.sort()
                 keymap = {str(idx + 1): lbl for idx, lbl in enumerate(known_labels)}
-                print(f"Updated shortcuts: {', '.join(f'{k}->{v}' for k, v in keymap.items())}")
+                logger.info("Updated shortcuts: %s", ", ".join(f"{k}->{v}" for k, v in keymap.items()))
             cleanup_empty_dirs(source_parent, unlabeled_root)
             break
 
     cv2.destroyAllWindows()
     per_label_limit = int(sort_cfg.get("per_label_limit", 0))
     if per_label_limit > 0:
-        print(f"Applying per-label cap of {per_label_limit} image(s).")
+        logger.info("Applying per-label cap of %s image(s).", per_label_limit)
         import random
 
         for label_dir in destination_root.iterdir():
@@ -267,9 +280,10 @@ def main() -> None:
                 if img not in keep:
                     img.unlink(missing_ok=True)
                     removed += 1
-            print(f"Capped {label_dir.name}: removed {removed} image(s).")
-    print("Sorting session complete.")
+            logger.info("Capped %s: removed %s image(s).", label_dir.name, removed)
+    logger.info("Sorting session complete.")
 
 
 if __name__ == "__main__":
+    configure_logging()
     main()

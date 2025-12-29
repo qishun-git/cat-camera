@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import logging
 from typing import Dict
 
 import cv2
 
 from cat_face.detection import create_detector
 from cat_face.embedding_model import EmbeddingExtractor, EmbeddingModel, EmbeddingRecognizer
-from cat_face.utils import load_label_map, load_project_config, preprocess_face, resolve_paths
+from cat_face.utils import configure_logging, load_label_map, load_project_config, preprocess_face, resolve_paths
+
+logger = logging.getLogger(__name__)
 
 
 def main() -> None:
@@ -50,12 +53,12 @@ def main() -> None:
     if not cap.isOpened():
         raise RuntimeError(f"Unable to open camera index {camera_index}")
 
-    print("Press Q to exit.")
+    logger.info("Press Q to exit.")
     try:
         while True:
             ret, frame = cap.read()
             if not ret:
-                print("Frame grab failed, exiting.")
+                logger.error("Frame grab failed, exiting.")
                 break
 
             faces = detector.detect(frame)
@@ -84,4 +87,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    configure_logging()
     main()

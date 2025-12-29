@@ -3,12 +3,15 @@ from __future__ import annotations
 import threading
 import time
 from http import server
+import logging
 from pathlib import Path
 from typing import Optional, Tuple
 
 import cv2
 import numpy as np
 import json
+
+logger = logging.getLogger(__name__)
 
 
 class MJPEGStreamer:
@@ -37,7 +40,7 @@ class MJPEGStreamer:
         self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
         self._thread.start()
         self._write_status_locked()
-        print(f"MJPEG stream available at http://{host}:{port}/stream.mjpg")
+        logger.info("MJPEG stream available at http://%s:%s/stream.mjpg", host, port)
 
     def _build_handler(self):
         streamer = self

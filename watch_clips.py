@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
 import subprocess
 import time
 from pathlib import Path
 
 from process_clips import main as process_clips_main
-from cat_face.utils import ensure_dir, load_project_config, resolve_paths
+from cat_face.utils import configure_logging, ensure_dir, load_project_config, resolve_paths
+
+logger = logging.getLogger(__name__)
 
 
 def compress_clip(src: Path, dest_dir: Path, crf: int) -> None:
@@ -32,7 +35,7 @@ def compress_clip(src: Path, dest_dir: Path, crf: int) -> None:
     ]
     subprocess.run(cmd, check=True, stdin=subprocess.DEVNULL)
     src.unlink(missing_ok=True)
-    print(f"Compressed {src} -> {dest}")
+    logger.info("Compressed %s -> %s", src, dest)
 
 
 def main() -> None:
@@ -49,7 +52,7 @@ def main() -> None:
         raise FileNotFoundError(f"Recorder output directory not found: {raw_dir}")
     ensure_dir(compressed_dir)
 
-    print(f"Watching {raw_dir} for new clips. Compressed output -> {compressed_dir}")
+    logger.info("Watching %s for new clips. Compressed output -> %s", raw_dir, compressed_dir)
     try:
         while True:
             new_clips = sorted(p for p in raw_dir.glob("*.mp4") if not p.stem.endswith("_tmp"))
@@ -57,12 +60,13 @@ def main() -> None:
                 try:
                     compress_clip(clip, compressed_dir, crf)
                 except subprocess.CalledProcessError as exc:
-                    print(f"Compression failed for {clip}: {exc}")
+                    logger.error("Compression failed for %s: %s", clip, exc)
             process_clips_main()
             time.sleep(interval)
     except KeyboardInterrupt:
-        print("Watcher stopped.")
+        logger.info("Watcher stopped.")
 
 
 if __name__ == "__main__":
+    configure_logging()
     main()

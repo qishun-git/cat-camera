@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
+import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -9,7 +10,9 @@ import cv2
 
 from cat_face.camera import CameraError, create_camera
 from cat_face.streamer import MJPEGStreamer
-from cat_face.utils import ensure_dir, load_project_config, resolve_paths
+from cat_face.utils import configure_logging, ensure_dir, load_project_config, resolve_paths
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -108,26 +111,26 @@ def create_clip_session(
 
 def _promote_clip(temp_path: Path, final_path: Path) -> Path:
     if not temp_path.exists():
-        print(f"Warning: temp clip missing for {final_path}")
+        logger.warning("Temp clip missing for %s", final_path)
         return final_path
     try:
         temp_path.rename(final_path)
     except OSError as exc:
-        print(f"Warning: failed to rename temp clip {temp_path}: {exc}")
+        logger.warning("Failed to rename temp clip %s: %s", temp_path, exc)
     return final_path
 
 
 def finalize_clip(session: ClipSession, reason: str) -> None:
     session.writer.release()
     saved_path = _promote_clip(session.temp_path, session.final_path)
-    print(f"Recording saved ({reason}): {saved_path}")
+    logger.info("Recording saved (%s): %s", reason, saved_path)
 
 
 def discard_clip(session: ClipSession, message: str) -> None:
     session.writer.release()
     if session.temp_path.exists():
         session.temp_path.unlink(missing_ok=True)
-    print(message)
+    logger.info("%s", message)
 
 
 def main() -> None:
@@ -188,7 +191,7 @@ def main() -> None:
             status_path=str(status_path) if status_path else None,
         )
     except OSError as exc:
-        print(f"Warning: unable to start MJPEG streamer: {exc}")
+        logger.warning("Unable to start MJPEG streamer: %s", exc)
         streamer = None
 
     bg_subtractor = cv2.createBackgroundSubtractorMOG2(
@@ -214,7 +217,7 @@ def main() -> None:
         while True:
             ret, frame = camera.read()
             if not ret:
-                print("Frame grab failed, exiting.")
+                logger.error("Frame grab failed, exiting.")
                 break
 
             frame_counter += 1
@@ -255,9 +258,12 @@ def main() -> None:
                         fourcc,
                         camera.fps,
                     )
-                    print(
-                        f"Recording started: {session.temp_path} "
-                        f"(target {recorder_cfg.min_duration:.0f}-{recorder_cfg.max_duration:.0f}s/{session.fps:.1f} fps)"
+                    logger.info(
+                        "Recording started: %s (target %.0f-%.0fs/%.1f fps)",
+                        session.temp_path,
+                        recorder_cfg.min_duration,
+                        recorder_cfg.max_duration,
+                        session.fps,
                     )
                 session.append_frame(frame)
                 session.mark_detection(now)
@@ -280,7 +286,7 @@ def main() -> None:
             streamer.stop()
         if session is not None:
             if session.duration(time.time()) >= recorder_cfg.min_duration:
-                print("Finalizing clip before exit...")
+                logger.info("Finalizing clip before exit...")
                 finalize_clip(session, "manual stop")
             else:
                 discard_clip(session, "Discarding unfinished clip (insufficient duration).")
@@ -289,4 +295,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    configure_logging()
     main()
