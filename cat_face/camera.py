@@ -79,7 +79,7 @@ class Picamera2Camera(CameraInterface):
         preview_size = preview_resolution or resolution
         lores_config: Optional[Dict[str, Any]] = None
         if preview_size:
-            lores_config = {"format": "RGB888", "size": preview_size}
+            lores_config = {"format": "YUV420", "size": preview_size}
             self._capture_stream = "lores"
         else:
             self._capture_stream = "main"
