@@ -236,7 +236,6 @@ class SharedEncoderBackend(RecordingBackend):
 class ClipSession:
     backend: RecordingBackend
     clip_path: Path
-    marker_path: Path
     fps: float
     start_time: float
     last_detection_time: float
@@ -258,10 +257,6 @@ def timestamp_name() -> str:
     return time.strftime("%Y%m%d-%H%M%S")
 
 
-def clip_marker_path(clip_path: Path) -> Path:
-    return clip_path.with_suffix(f"{clip_path.suffix}.recording")
-
-
 def create_clip_session(
     frame: np.ndarray,
     now: float,
@@ -276,9 +271,6 @@ def create_clip_session(
         final_path = cfg.output_dir / f"{final_path.stem}_{counter}{final_path.suffix}"
         counter += 1
     final_path.parent.mkdir(parents=True, exist_ok=True)
-    marker = clip_marker_path(final_path)
-    marker.parent.mkdir(parents=True, exist_ok=True)
-    marker.touch(exist_ok=True)
 
     fps = cfg.fps_override or camera_fps or 30.0
     backend.start(frame, final_path, fps)
@@ -286,7 +278,6 @@ def create_clip_session(
     return ClipSession(
         backend=backend,
         clip_path=final_path,
-        marker_path=marker,
         fps=fps,
         start_time=now,
         last_detection_time=now,
@@ -295,8 +286,6 @@ def create_clip_session(
 
 def finalize_clip(session: ClipSession, reason: str) -> None:
     session.backend.stop(keep=True)
-    if session.marker_path.exists():
-        session.marker_path.unlink(missing_ok=True)
     logger.info("Recording saved (%s): %s", reason, session.clip_path)
 
 
@@ -307,8 +296,6 @@ def discard_clip(session: ClipSession, message: str) -> None:
             session.clip_path.unlink()
         except OSError as exc:
             logger.warning("Failed to delete %s: %s", session.clip_path, exc)
-    if session.marker_path.exists():
-        session.marker_path.unlink(missing_ok=True)
     logger.info("%s", message)
 
 
