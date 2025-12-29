@@ -118,7 +118,7 @@ class PicameraRecordingBackend(RecordingBackend):
     def start(self, frame: np.ndarray, temp_path: Path, fps: float) -> None:
         self._encoder = H264Encoder(bitrate=self._bitrate)  # type: ignore[name-defined]
         self._output = FfmpegOutput(str(temp_path))  # type: ignore[name-defined]
-        self._picamera.start_recording(self._encoder, self._output, name="main")  # type: ignore[arg-type]
+        self._picamera.start_encoder(self._encoder, self._output)  # type: ignore[attr-defined, call-arg]
 
     def handle_frame(self, frame: np.ndarray) -> None:
         # Picamera recordings are handled directly by the ISP.
@@ -128,7 +128,7 @@ class PicameraRecordingBackend(RecordingBackend):
         if self._encoder is None:
             return
         try:
-            self._picamera.stop_recording()  # type: ignore[call-arg]
+            self._picamera.stop_encoder()  # type: ignore[attr-defined, call-arg]
         finally:
             if self._output and hasattr(self._output, "close"):
                 try:
