@@ -30,7 +30,7 @@ def compress_clip(src: Path, dest_dir: Path, crf: int) -> None:
         str(crf),
         str(dest),
     ]
-    subprocess.run(cmd, check=True)
+    subprocess.run(cmd, check=True, stdin=subprocess.DEVNULL)
     src.unlink(missing_ok=True)
     print(f"Compressed {src} -> {dest}")
 
