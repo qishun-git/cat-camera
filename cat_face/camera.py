@@ -114,9 +114,10 @@ def create_camera(
     picamera_fps: Optional[float] = None,
     opencv_resolution: Optional[Tuple[int, int]] = None,
 ) -> CameraInterface:
-    if prefer_picamera and PICAMERA2_AVAILABLE:
-        try:
-            return Picamera2Camera(resolution=picamera_resolution, target_fps=picamera_fps)
-        except CameraError as exc:
-            print(f"Picamera2 unavailable: {exc}. Falling back to OpenCV.")
+    if prefer_picamera:
+        if not PICAMERA2_AVAILABLE:
+            raise CameraError(
+                "Picamera2 was requested but is not available. Install picamera2 or disable 'prefer_picamera2'."
+            )
+        return Picamera2Camera(resolution=picamera_resolution, target_fps=picamera_fps)
     return OpenCVCamera(camera_index, resolution=opencv_resolution)

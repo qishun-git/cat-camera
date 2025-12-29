@@ -3,7 +3,7 @@
 | Section | Keys | Description |
 | --- | --- | --- |
 | `paths` | `base_data_dir`, `unlabeled_dir`, `training_dir`, `reject_dir`, `models_dir` | Shared directories for collection, sorting, training, and recognition outputs. |
-| `vision` | `camera_index`, `face_size`, `prefer_picamera2`, `picamera_resolution`, `picamera_fps` | Camera and preprocessing settings shared by the recorder, recognition, and clip processing. |
+| `vision` | `camera_index`, `face_size`, `prefer_picamera2`, `picamera_resolution`, `picamera_fps` | Camera and preprocessing settings shared by the recorder, recognition, and clip processing. Set `prefer_picamera2` only when Picamera2 is installed; the recorder now errors instead of falling back to OpenCV when this flag is true. |
 | `motion` | `history`, `var_threshold`, `dilation_iterations`, `trigger_ratio`, `min_area`, `warmup_frames` | Background subtraction parameters that decide when `record_cat_video.py` starts/stops recording. |
 | `sorter` | `window_*`, `delete_rejects`, `image_extensions`, `per_label_limit` | UI knobs for `sort_unlabeled.py`; `per_label_limit` randomly caps each label’s images after sorting. |
 | `training` | `labels_filename`, `embedding_model_filename`, `embedding_input_size` | Output filenames written by `train_embeddings.py` and the embedding backbone’s input size. |
