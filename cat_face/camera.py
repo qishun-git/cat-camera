@@ -82,7 +82,8 @@ class Picamera2Camera(CameraInterface):
             self._fps = float(target_fps)
         else:
             self._fps = 0.0
-        config = self._picam.create_video_configuration(main=main_config, controls=controls or None)
+        controls_payload = controls or {}
+        config = self._picam.create_video_configuration(main=main_config, controls=controls_payload)
         self._picam.configure(config)
         self._picam.start()
         time.sleep(0.05)
