@@ -105,20 +105,17 @@ motion:
   blur_kernel: 5
 
 streaming:
-  # MJPEG streamer settings shared between the recorder and web UI.
-  # Interface and port for the local streamer (running inside record_cat_video).
-  host: 0.0.0.0
-  port: 8765
-  # Resolution for the stream preview (width, height). Leave null to reuse capture size.
-  resolution: [640, 360]
-  # JPEG quality for the preview (10-95).
-  quality: 80
-  # Minimum delay between streamed frames (seconds). 0 for as fast as possible.
-  frame_interval: 0.03
-  # Optional explicit public URL for the MJPEG stream (set if the auto-detected host shouldn't be used).
+  # Hardware streaming publisher settings (use with MediaMTX or another RTSP/HLS relay).
+  # If publish_url is set, the recorder will push the main stream via Picamera2's PyAV output.
+  publish_url:
+  # Format passed to PyavOutput (rtsp, rtsp+tcp, rtmp, hls, etc.).
+  publish_format: rtsp
+  # Optional key/value string map passed as PyAV options (e.g., {"rtsp_transport": "tcp"}).
+  publish_options: {}
+  # Bitrate for the streaming encoder (defaults to recorder.picamera_bitrate when empty).
+  bitrate:
+  # Public URL the web UI should embed or link to (for MediaMTX this is typically http://host:8889/cam).
   public_url:
-  # File where the recorder writes viewer count for the web UI.
-  status_path: tmp/stream_status.json
 
 clip_processing:
   # Directory containing recorded clips to process (defaults to recorder.output_dir).

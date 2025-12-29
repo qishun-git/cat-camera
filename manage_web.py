@@ -188,12 +188,8 @@ def resolve_stream_url(request: Request) -> Optional[str]:
     streaming_cfg = STATE.config.get("streaming") or {}
     stream_url = streaming_cfg.get("public_url")
     if stream_url:
-        return stream_url
-    port = int(streaming_cfg.get("port", 8765))
-    host = request.url.hostname or request.client.host
-    if not host:
-        return None
-    return f"http://{host}:{port}/stream.mjpg"
+        return str(stream_url)
+    return None
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -202,19 +198,6 @@ def stream_page(request: Request):
     stream_url = resolve_stream_url(request)
     return templates.TemplateResponse("stream.html", {"request": request, "stream_url": stream_url})
 
-
-@app.get("/stream/status")
-def stream_status():
-    streaming_cfg = STATE.config.get("streaming") or {}
-    status_path = streaming_cfg.get("status_path") or "tmp/stream_status.json"
-    streamer_path = Path(status_path)
-    if not streamer_path.exists():
-        return JSONResponse({"clients": 0})
-    try:
-        data = json.loads(streamer_path.read_text())
-    except json.JSONDecodeError:
-        data = {"clients": 0}
-    return JSONResponse(data)
 
 
 @app.get("/clips", response_class=HTMLResponse)

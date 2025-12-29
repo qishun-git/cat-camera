@@ -1,138 +1,61 @@
 from __future__ import annotations
 
-import threading
-import time
-from http import server
 import logging
-from pathlib import Path
-from typing import Optional, Tuple
+from typing import Dict, Optional
 
-import cv2
-import numpy as np
-import json
+from cat_face.camera import PICAMERA2_AVAILABLE
 
 logger = logging.getLogger(__name__)
 
+try:
+    if PICAMERA2_AVAILABLE:
+        from picamera2 import Picamera2  # type: ignore
+        from picamera2.encoders import H264Encoder  # type: ignore
+        from picamera2.outputs import PyavOutput  # type: ignore
+    else:
+        Picamera2 = None  # type: ignore
+        H264Encoder = None  # type: ignore
+        PyavOutput = None  # type: ignore
+except ImportError:  # pragma: no cover - picamera2 not available on macOS dev machines
+    Picamera2 = None  # type: ignore
+    H264Encoder = None  # type: ignore
+    PyavOutput = None  # type: ignore
 
-class MJPEGStreamer:
-    """Simple MJPEG streaming server fed with existing frames."""
+
+class PicameraRTSPPublisher:
+    """Publishes the Picamera2 main stream to an RTSP/RTMP/HLS endpoint via PyAV."""
 
     def __init__(
         self,
-        host: str = "0.0.0.0",
-        port: int = 8765,
-        resolution: Optional[Tuple[int, int]] = None,
-        quality: int = 80,
-        frame_interval: float = 0.03,
-        status_path: Optional[str] = None,
+        picamera: Picamera2,  # type: ignore[valid-type]
+        target: str,
+        bitrate: int,
+        fmt: str = "rtsp",
+        options: Optional[Dict[str, str]] = None,
     ) -> None:
-        self._resolution = resolution
-        self._quality = max(10, min(int(quality), 95))
-        self._condition = threading.Condition()
-        self._frame: Optional[bytes] = None
-        self._shutdown = False
-        self._frame_interval = max(0.0, float(frame_interval))
-        self._clients = 0
-        self._status_path = status_path
+        if Picamera2 is None or H264Encoder is None or PyavOutput is None:
+            raise RuntimeError("Streaming requested but Picamera2/PyAV components are unavailable.")
+        if not target:
+            raise ValueError("Streaming target URL must be provided.")
+        self._picamera = picamera
+        self._encoder = H264Encoder(bitrate=max(int(bitrate), 1_000_000))  # type: ignore[name-defined]
+        opts = {str(k): str(v) for k, v in (options or {}).items()}
+        self._output = PyavOutput(target, format=fmt, options=opts)  # type: ignore[name-defined]
+        self._active = False
+        self.start()
 
-        handler = self._build_handler()
-        self._server = server.ThreadingHTTPServer((host, port), handler)
-        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
-        self._thread.start()
-        self._write_status_locked()
-        logger.info("MJPEG stream available at http://%s:%s/stream.mjpg", host, port)
-
-    def _build_handler(self):
-        streamer = self
-
-        class StreamHandler(server.BaseHTTPRequestHandler):
-            def do_GET(self):
-                request_path = self.path.split("?")[0]
-                if request_path not in ("/", "/stream", "/stream.mjpg"):
-                    self.send_error(404)
-                    return
-                is_stream = request_path == "/stream.mjpg"
-                if is_stream:
-                    streamer._increment_clients()
-                if is_stream:
-                    self.send_response(200)
-                    self.send_header("Cache-Control", "no-cache, private")
-                    self.send_header("Pragma", "no-cache")
-                    self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=frame")
-                    self.end_headers()
-                    try:
-                        while True:
-                            frame = streamer.wait_for_frame()
-                            if frame is None:
-                                break
-                            self.wfile.write(b"--frame\r\n")
-                            self.wfile.write(b"Content-Type: image/jpeg\r\n")
-                            self.wfile.write(b"Content-Length: " + str(len(frame)).encode() + b"\r\n\r\n")
-                            self.wfile.write(frame)
-                            self.wfile.write(b"\r\n")
-                            if streamer._frame_interval:
-                                time.sleep(streamer._frame_interval)
-                    except (BrokenPipeError, ConnectionResetError):
-                        pass
-                    finally:
-                        streamer._decrement_clients()
-                else:
-                    self.send_response(200)
-                    self.send_header("Content-Type", "text/plain")
-                    self.end_headers()
-                    self.wfile.write(b"Pi-Cam streamer")
-
-            def log_message(self, format, *args):
-                return
-
-        return StreamHandler
-
-    def wait_for_frame(self) -> Optional[bytes]:
-        with self._condition:
-            while self._frame is None and not self._shutdown:
-                self._condition.wait()
-            return self._frame
-
-    def push_frame(self, frame: np.ndarray) -> None:
-        if frame is None or self._clients == 0:
+    def start(self) -> None:
+        if self._active:
             return
-        display = frame
-        if self._resolution:
-            display = cv2.resize(display, self._resolution, interpolation=cv2.INTER_AREA)
-        success, buffer = cv2.imencode(".jpg", display, [int(cv2.IMWRITE_JPEG_QUALITY), self._quality])
-        if not success:
-            return
-        with self._condition:
-            self._frame = buffer.tobytes()
-            self._condition.notify_all()
-
-    def _increment_clients(self) -> None:
-        with self._condition:
-            self._clients += 1
-            self._write_status_locked()
-
-    def _decrement_clients(self) -> None:
-        with self._condition:
-            self._clients = max(0, self._clients - 1)
-            self._write_status_locked()
-
-    @property
-    def client_count(self) -> int:
-        with self._condition:
-            return self._clients
-
-    def _write_status_locked(self) -> None:
-        if not self._status_path:
-            return
-        path = Path(self._status_path)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps({"clients": self._clients}))
+        self._picamera.start_encoder(self._encoder, self._output)  # type: ignore[attr-defined]
+        self._active = True
 
     def stop(self) -> None:
-        with self._condition:
-            self._shutdown = True
-            self._condition.notify_all()
-            self._clients = 0
-            self._write_status_locked()
-        self._server.shutdown()
-        self._server.server_close()
+        if not self._active:
+            return
+        try:
+            self._picamera.stop_encoder(self._encoder)  # type: ignore[attr-defined]
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning("Failed to stop streaming encoder cleanly: %s", exc)
+        finally:
+            self._active = False

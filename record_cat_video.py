@@ -11,7 +11,7 @@ import cv2
 import numpy as np
 
 from cat_face.camera import CameraError, CameraInterface, PICAMERA2_AVAILABLE
-from cat_face.streamer import MJPEGStreamer
+from cat_face.streamer import PicameraRTSPPublisher
 from cat_face.utils import configure_logging, ensure_dir, load_project_config, resolve_paths
 
 logger = logging.getLogger(__name__)
@@ -222,13 +222,10 @@ def main() -> None:
     vision_cfg = {"camera_index": 0} | (config.get("vision") or {})
     recorder_cfg = RecorderConfig.from_project(config, paths["base"])
     streaming_cfg = config.get("streaming") or {}
-    stream_resolution = streaming_cfg.get("resolution")
-    if isinstance(stream_resolution, (list, tuple)) and len(stream_resolution) >= 2:
-        stream_resolution = (int(stream_resolution[0]), int(stream_resolution[1]))
-    else:
-        stream_resolution = None
-    stream_quality = int(streaming_cfg.get("quality", 80))
-    status_path = streaming_cfg.get("status_path")
+    stream_publish_url = streaming_cfg.get("publish_url")
+    stream_publish_format = streaming_cfg.get("publish_format", "rtsp")
+    stream_publish_options = streaming_cfg.get("publish_options") or {}
+    stream_bitrate = int(streaming_cfg.get("bitrate", recorder_cfg.picamera_bitrate))
 
     motion_defaults = {
         "history": 300,
@@ -251,7 +248,7 @@ def main() -> None:
     if not (PICAMERA2_AVAILABLE and Picamera2 is not None):
         raise RuntimeError("Picamera2 is required to run the recorder. Install picamera2 on your Pi.")
 
-    lores_resolution = stream_resolution or (640, 360)
+    lores_resolution = (640, 360)
     camera: CameraInterface = PicameraFrameSource(
         resolution=picamera_resolution,
         preview_resolution=lores_resolution,
@@ -262,25 +259,26 @@ def main() -> None:
         recorder_cfg.picamera_bitrate,
     )
 
-    streamer: Optional[MJPEGStreamer] = None
-    try:
-        streamer = MJPEGStreamer(
-            host=str(streaming_cfg.get("host", "0.0.0.0")),
-            port=int(streaming_cfg.get("port", 8765)),
-            resolution=stream_resolution,
-            quality=stream_quality,
-            frame_interval=float(streaming_cfg.get("frame_interval", 0.03)),
-            status_path=str(status_path) if status_path else None,
-        )
-    except OSError as exc:
-        logger.warning("Unable to start MJPEG streamer: %s", exc)
-        streamer = None
+    publisher: Optional[PicameraRTSPPublisher] = None
+    if stream_publish_url:
+        try:
+            options = {str(k): str(v) for k, v in (stream_publish_options or {}).items()}
+            publisher = PicameraRTSPPublisher(
+                camera.picamera,  # type: ignore[arg-type]
+                target=str(stream_publish_url),
+                bitrate=stream_bitrate,
+                fmt=str(stream_publish_format),
+                options=options,
+            )
+            logger.info("Publishing live stream to %s (%s)", stream_publish_url, stream_publish_format)
+        except Exception as exc:
+            logger.warning("Unable to start RTSP publisher (%s): %s", stream_publish_url, exc)
 
     try:
-        run_motion_recorder(camera, recorder_cfg, motion_cfg, backend_factory, streamer)
+        run_motion_recorder(camera, recorder_cfg, motion_cfg, backend_factory)
     finally:
-        if streamer:
-            streamer.stop()
+        if publisher:
+            publisher.stop()
 
 
 def run_motion_recorder(
@@ -288,7 +286,6 @@ def run_motion_recorder(
     recorder_cfg: RecorderConfig,
     motion_cfg: Dict[str, Any],
     backend_factory: Callable[[], RecordingBackend],
-    streamer: Optional[MJPEGStreamer],
 ) -> None:
     bg_subtractor = cv2.createBackgroundSubtractorMOG2(
         history=int(motion_cfg.get("history", 300)),
@@ -336,9 +333,6 @@ def run_motion_recorder(
                             continue
                         had_motion = True
                         break
-
-            if streamer:
-                streamer.push_frame(frame)
 
             now = time.time()
             if had_motion:
