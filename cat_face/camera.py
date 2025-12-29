@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import time
-from typing import Any, Dict, Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -67,7 +67,6 @@ class Picamera2Camera(CameraInterface):
     def __init__(
         self,
         resolution: Optional[Tuple[int, int]] = None,
-        preview_resolution: Optional[Tuple[int, int]] = None,
         target_fps: Optional[float] = None,
     ) -> None:
         if not PICAMERA2_AVAILABLE:
@@ -76,23 +75,12 @@ class Picamera2Camera(CameraInterface):
         main_config = {"format": "RGB888"}
         if resolution:
             main_config["size"] = resolution
-        preview_size = preview_resolution or resolution
-        lores_config: Optional[Dict[str, Any]] = None
-        if preview_size:
-            lores_config = {"format": "YUV420", "size": preview_size}
-            self._capture_stream = "lores"
-            self._capture_format = "YUV420"
-        else:
-            self._capture_stream = "main"
-            self._capture_format = "RGB888"
         self._fps = float(target_fps) if target_fps and target_fps > 0 else 0.0
         controls: Dict[str, Any] = {}
         if self._fps > 0:
             frame_duration = int(1_000_000 / self._fps)
             controls["FrameDurationLimits"] = (frame_duration, frame_duration)
-        config = self._picam.create_video_configuration(
-            main=main_config, lores=lores_config, controls=controls
-        )
+        config = self._picam.create_video_configuration(main=main_config, controls=controls)
         self._picam.configure(config)
         self._picam.start()
         time.sleep(0.05)
@@ -102,13 +90,10 @@ class Picamera2Camera(CameraInterface):
             self._fps = 30.0
 
     def read(self) -> Tuple[bool, np.ndarray]:
-        frame = self._picam.capture_array(self._capture_stream)
+        frame = self._picam.capture_array("main")
         if frame is None:
             return False, np.zeros((1, 1, 3), dtype=np.uint8)
-        if self._capture_format.startswith("YUV"):
-            converted = cv2.cvtColor(frame, cv2.COLOR_YUV2BGR_I420)
-        else:
-            converted = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+        converted = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
         return True, converted
 
     def release(self) -> None:
@@ -156,7 +141,7 @@ def create_camera(
     prefer_picamera: bool = False,
     picamera_resolution: Optional[Tuple[int, int]] = None,
     picamera_fps: Optional[float] = None,
-    preview_resolution: Optional[Tuple[int, int]] = None,
+    opencv_resolution: Optional[Tuple[int, int]] = None,
 ) -> CameraInterface:
     if prefer_picamera:
         if not PICAMERA2_AVAILABLE:
@@ -165,7 +150,6 @@ def create_camera(
             )
         return Picamera2Camera(
             resolution=picamera_resolution,
-            preview_resolution=preview_resolution,
             target_fps=picamera_fps,
         )
-    return OpenCVCamera(camera_index, resolution=preview_resolution)
+    return OpenCVCamera(camera_index, resolution=opencv_resolution)

@@ -9,7 +9,7 @@
 | `training` | `labels_filename`, `embedding_model_filename`, `embedding_input_size` | Output filenames written by `train_embeddings.py` and the embedding backbone’s input size. |
 | `recognition` | `embedding_threshold`, `embedding_model_filename`, `labels_filename` | Runtime thresholds and filenames consumed by `recognize_live.py`. |
 | `detection` | `model`, `input_size`, `class_ids`, `conf_threshold`, `iou_threshold`, `providers` | YOLO (ONNX Runtime) detector configuration shared by recognition and clip processing. |
-| `recorder` | `output_dir`, `min_duration`, `max_duration`, `cooldown`, `absence_grace`, `fps`, `codec`, `native_bitrate` | Default settings for `record_cat_video.py` (clip destination, duration bounds, cooldown, absence grace period, encoder/native encoder options). |
+| `recorder` | `output_dir`, `min_duration`, `max_duration`, `cooldown`, `absence_grace`, `fps`, `codec` | Default settings for `record_cat_video.py` (clip destination, duration bounds, cooldown, absence grace period, encoder options). |
 | `clip_processing` | `clips_dir`, `save_limit`, `training_refresh_count`, `recognition_margin`, `compression_crf`, `watch_interval`, `detection_interval`, `trim_padding_seconds` | Controls how `process_clips.py` and the clip watcher behave (clip source directory, optional per-clip sampling limit, how many frames to promote to training, recognition margin for auto-tagging, H.265 CRF, watcher poll interval, YOLO cadence when scanning clips, and how much padding to keep when trimming clips down to the cat’s appearance). |
 | `streaming` | `host`, `port`, `resolution`, `quality`, `frame_interval`, `public_url`, `status_path` | MJPEG streamer knobs shared by the recorder and web UI. `public_url` is optional—when missing, the web UI builds the stream URL from the host you used to access it and the configured port. |
 
@@ -44,4 +44,3 @@ Update `vision.face_size` once to keep recording, training, and recognition alig
 - `absence_grace`: Grace period (seconds) after the last detection before a clip is closed. If the cat leaves before `min_duration`, the clip is discarded.
 - `fps`: Preferred output FPS for saved clips. Set to `0` (or omit) to reuse the camera’s FPS.
 - `codec`: FourCC string passed to OpenCV’s `VideoWriter` (for MP4 output, use `mp4v`, `avc1`, etc.).
-- `native_bitrate`: Bitrate (in bits per second) used when Picamera2’s hardware encoder handles recording. Set `vision.prefer_picamera2: true` on the Pi to enable this native pipeline; otherwise the OpenCV writer path is used.
