@@ -184,11 +184,22 @@ def cleanup_folder(folder: Path) -> None:
         pass
 
 
+def resolve_stream_url(request: Request) -> Optional[str]:
+    streaming_cfg = STATE.config.get("streaming") or {}
+    stream_url = streaming_cfg.get("public_url")
+    if stream_url:
+        return stream_url
+    port = int(streaming_cfg.get("port", 8765))
+    host = request.url.hostname or request.client.host
+    if not host:
+        return None
+    return f"http://{host}:{port}/stream.mjpg"
+
+
 @app.get("/", response_class=HTMLResponse)
 @app.get("/stream", response_class=HTMLResponse)
 def stream_page(request: Request):
-    streaming_cfg = STATE.config.get("streaming") or {}
-    stream_url = streaming_cfg.get("public_url")
+    stream_url = resolve_stream_url(request)
     return templates.TemplateResponse("stream.html", {"request": request, "stream_url": stream_url})
 
 

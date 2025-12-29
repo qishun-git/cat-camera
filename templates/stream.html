@@ -25,7 +25,7 @@
         setInterval(refreshStatus, 5000);
     </script>
     {% else %}
-    <p>No stream URL configured. Set <code>streaming.public_url</code> in <code>configs/cat_face.yaml</code> to enable this view.</p>
+    <p>Stream URL unavailable. Make sure you access the site via the Pi&rsquo;s IP/hostname or set <code>streaming.public_url</code> in <code>configs/cat_face.yaml</code>.</p>
     {% endif %}
 </section>
 {% endblock %}

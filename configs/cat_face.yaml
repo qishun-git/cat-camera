@@ -114,8 +114,8 @@ streaming:
   quality: 80
   # Minimum delay between streamed frames (seconds). 0 for as fast as possible.
   frame_interval: 0.03
-  # Public URL that the web app should embed (typically http://<pi-ip>:port/stream.mjpg).
-  public_url: http://localhost:8765/stream.mjpg
+  # Optional explicit public URL for the MJPEG stream (set if the auto-detected host shouldn't be used).
+  public_url:
   # File where the recorder writes viewer count for the web UI.
   status_path: tmp/stream_status.json
 

@@ -102,9 +102,8 @@ def load_project_config(path: Path | str | None = None) -> Dict[str, Any]:
     """Load the unified project configuration and ensure required keys exist."""
     config_path = Path(path) if path else PROJECT_CONFIG_FILE
     cfg = load_yaml(config_path)
-    # Required keys: detection.model and streaming.public_url for the web UI.
+    # Required keys: detection.model to load YOLO correctly.
     _require(cfg, ["detection", "model"])
-    _require(cfg, ["streaming", "public_url"])
     return cfg
 
 
