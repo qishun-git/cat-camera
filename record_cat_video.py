@@ -149,7 +149,6 @@ class SharedPicameraEncoder:
         self._circular = CircularOutput2(buffer_duration_ms=max(int(buffer_ms), 0))
         self._encoder.output = [self._stream_output, self._circular]
         self._picamera.start_encoder(self._encoder)  # type: ignore[attr-defined]
-        self._circular.start()
         logger.info("Publishing live stream to %s (%s)", publish_url, publish_format)
 
     def start_clip(self, clip_path: Path) -> None:
