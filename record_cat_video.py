@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from abc import ABC, abstractmethod
 import logging
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional, Tuple, List
+from typing import Any, Callable, Dict, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -81,30 +81,8 @@ class RecordingBackend(ABC):
         """Consume another frame (no-op for Picamera)."""
 
     @abstractmethod
-    def stop(self) -> None:
-        """Release backend resources (finalize or discard)."""
-
-
-class OpenCVRecordingBackend(RecordingBackend):
-    def __init__(self, fourcc: int) -> None:
-        self._fourcc = fourcc
-        self._writer: Optional[cv2.VideoWriter] = None
-
-    def start(self, frame: np.ndarray, clip_path: Path, fps: float) -> None:
-        height, width = frame.shape[:2]
-        writer = cv2.VideoWriter(str(clip_path), self._fourcc, fps, (width, height))
-        if not writer.isOpened():
-            raise RuntimeError("Unable to create video writer for clip recording.")
-        self._writer = writer
-
-    def handle_frame(self, frame: np.ndarray) -> None:
-        if self._writer is not None:
-            self._writer.write(frame)
-
-    def stop(self) -> None:
-        if self._writer is not None:
-            self._writer.release()
-            self._writer = None
+    def stop(self, keep: bool) -> None:
+        """Release backend resources. keep=True finalizes, False discards."""
 
 
 class PicameraRecordingBackend(RecordingBackend):
@@ -125,7 +103,8 @@ class PicameraRecordingBackend(RecordingBackend):
         # Picamera recordings are handled directly by the ISP.
         return
 
-    def stop(self) -> None:
+    def stop(self, keep: bool) -> None:
+        del keep
         if self._encoder is None:
             return
         try:
@@ -150,6 +129,7 @@ class SharedPicameraEncoder:
         publish_url: str,
         publish_format: str,
         publish_options: Dict[str, str],
+        temp_dir: Path,
     ) -> None:
         if PyavOutput is None or H264Encoder is None:
             raise RuntimeError("Picamera2 streaming requested but required modules are unavailable.")
@@ -158,47 +138,59 @@ class SharedPicameraEncoder:
         self._picamera = picamera
         self._encoder = H264Encoder(bitrate=max(int(bitrate), 1_000_000))  # type: ignore[name-defined]
         self._lock = threading.Lock()
-        self._base_outputs: List[Any] = []
-        self._clip_output: Optional[Any] = None
-        stream_output = PyavOutput(publish_url, format=publish_format, options=publish_options)  # type: ignore[name-defined]
-        self._stream_output = stream_output
-        self._base_outputs.append(stream_output)
-        self._encoder.output = list(self._base_outputs)
+        self._active_final_path: Optional[Path] = None
+        self._temp_dir = ensure_dir(temp_dir)
+        self._temp_path = self._temp_dir / "active_clip.mp4"
+        self._stream_output = PyavOutput(publish_url, format=publish_format, options=publish_options)
+        self._file_output = PyavOutput(str(self._temp_path), format="mp4")
+        self._encoder.output = [self._stream_output, self._file_output]
         self._picamera.start_encoder(self._encoder)  # type: ignore[attr-defined]
         logger.info("Publishing live stream to %s (%s)", publish_url, publish_format)
 
     def start_clip(self, clip_path: Path) -> None:
         with self._lock:
-            if self._clip_output is not None:
+            if self._active_final_path is not None:
                 raise RuntimeError("Recorder already writing a clip.")
             clip_path.parent.mkdir(parents=True, exist_ok=True)
-            clip_output = PyavOutput(str(clip_path), format="mp4")  # type: ignore[name-defined]
-            outputs = list(self._base_outputs)
-            outputs.append(clip_output)
-            self._encoder.output = outputs
-            self._clip_output = clip_output
+            if self._temp_path.exists():
+                self._temp_path.unlink()
+            self._active_final_path = clip_path
+        self._start_file_output()
 
-    def stop_clip(self) -> None:
-        clip_output: Optional[FfmpegOutput] = None
+    def stop_clip(self, keep: bool) -> None:
+        final_path: Optional[Path] = None
         with self._lock:
-            if self._clip_output is None:
+            if self._active_final_path is None:
                 return
-            clip_output = self._clip_output
-            self._clip_output = None
-            self._encoder.output = list(self._base_outputs)
-        if clip_output is not None:
-            self._close_output(clip_output)
+            final_path = self._active_final_path
+            self._active_final_path = None
+        self._stop_file_output()
+        if keep and final_path is not None:
+            try:
+                final_path.parent.mkdir(parents=True, exist_ok=True)
+                self._temp_path.replace(final_path)
+            except FileNotFoundError:
+                logger.warning("Temp clip missing for %s", final_path)
+            except OSError as exc:
+                logger.error("Failed to move %s -> %s: %s", self._temp_path, final_path, exc)
+        else:
+            self._cleanup_temp()
 
     def close(self) -> None:
+        should_stop = False
         with self._lock:
-            clip_output = self._clip_output
-            self._clip_output = None
+            should_stop = self._active_final_path is not None
+        if should_stop:
             try:
-                self._picamera.stop_encoder(self._encoder)  # type: ignore[attr-defined]
+                self.stop_clip(keep=False)
             except Exception as exc:
-                logger.warning("Failed to stop shared encoder cleanly: %s", exc)
-            if clip_output is not None:
-                self._close_output(clip_output)
+                logger.warning("Failed to stop active clip cleanly: %s", exc)
+        try:
+            self._picamera.stop_encoder(self._encoder)  # type: ignore[attr-defined]
+        except Exception as exc:
+            logger.warning("Failed to stop shared encoder cleanly: %s", exc)
+        self._close_output(self._stream_output)
+        self._close_output(self._file_output)
 
     def _close_output(self, output: Any) -> None:
         try:
@@ -211,6 +203,29 @@ class SharedPicameraEncoder:
                 output.close()
         except Exception:
             pass
+
+    def _start_file_output(self) -> None:
+        try:
+            start = getattr(self._file_output, "start", None)
+            if callable(start):
+                start()
+        except Exception as exc:
+            logger.error("Failed to start file output: %s", exc)
+            raise
+
+    def _stop_file_output(self) -> None:
+        try:
+            stop = getattr(self._file_output, "stop", None)
+            if callable(stop):
+                stop()
+        except Exception:
+            pass
+
+    def _cleanup_temp(self) -> None:
+        try:
+            self._temp_path.unlink(missing_ok=True)
+        except Exception as exc:
+            logger.debug("Failed to remove temp clip %s: %s", self._temp_path, exc)
 
 
 class SharedEncoderBackend(RecordingBackend):
@@ -226,8 +241,8 @@ class SharedEncoderBackend(RecordingBackend):
     def handle_frame(self, frame: np.ndarray) -> None:
         return
 
-    def stop(self) -> None:
-        self._controller.stop_clip()
+    def stop(self, keep: bool) -> None:
+        self._controller.stop_clip(keep)
 
 
 @dataclass
@@ -292,14 +307,14 @@ def create_clip_session(
 
 
 def finalize_clip(session: ClipSession, reason: str) -> None:
-    session.backend.stop()
+    session.backend.stop(keep=True)
     if session.marker_path.exists():
         session.marker_path.unlink(missing_ok=True)
     logger.info("Recording saved (%s): %s", reason, session.clip_path)
 
 
 def discard_clip(session: ClipSession, message: str) -> None:
-    session.backend.stop()
+    session.backend.stop(keep=False)
     if session.clip_path.exists():
         try:
             session.clip_path.unlink()
@@ -352,6 +367,7 @@ def main() -> None:
         preview_resolution=lores_resolution,
         target_fps=picamera_fps,
     )
+    active_tmp_dir = ensure_dir(recorder_cfg.output_dir / ".active")
     shared_encoder: Optional[SharedPicameraEncoder] = None
     backend_factory: Callable[[], RecordingBackend]
     if stream_publish_url:
@@ -363,6 +379,7 @@ def main() -> None:
                 publish_url=str(stream_publish_url),
                 publish_format=str(stream_publish_format),
                 publish_options=options,
+                temp_dir=active_tmp_dir,
             )
             backend_factory = lambda: SharedEncoderBackend(shared_encoder)  # type: ignore[misc]
         except Exception as exc:
