@@ -450,7 +450,7 @@ def run_motion_recorder(
                     )
                     logger.info(
                         "Recording started: %s (target %.0f-%.0fs/%.1f fps)",
-                        session.temp_path,
+                        session.clip_path,
                         recorder_cfg.min_duration,
                         recorder_cfg.max_duration,
                         session.fps,
