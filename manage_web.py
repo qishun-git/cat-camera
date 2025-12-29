@@ -8,6 +8,7 @@ import cv2
 from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
+from urllib.parse import urlparse
 
 from cat_face.embedding_model import EmbeddingExtractor, EmbeddingModel, EmbeddingRecognizer
 from cat_face.utils import ensure_dir, load_label_map, load_project_config, preprocess_face, resolve_paths
@@ -189,6 +190,27 @@ def resolve_stream_url(request: Request) -> Optional[str]:
     stream_url = streaming_cfg.get("public_url")
     if stream_url:
         return str(stream_url)
+    publish_url = streaming_cfg.get("publish_url")
+    if not publish_url:
+        return None
+    parsed = urlparse(str(publish_url))
+    stream_name = streaming_cfg.get("viewer_path") or parsed.path.strip("/")
+    protocol = str(streaming_cfg.get("viewer_protocol", "http") or "http")
+    raw_port = streaming_cfg.get("viewer_port", 8889)
+    host = request.url.hostname or (request.client.host if request.client else None) or parsed.hostname
+    if not host:
+        return None
+    port_part = ""
+    try:
+        if raw_port:
+            port = int(raw_port)
+            default_port = 80 if protocol == "http" else 443 if protocol == "https" else None
+            if port != default_port:
+                port_part = f":{port}"
+    except (TypeError, ValueError):
+        pass
+    path = f"/{stream_name}" if stream_name else ""
+    return f"{protocol}://{host}{port_part}{path}"
     return None
 
 

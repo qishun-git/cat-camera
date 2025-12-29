@@ -107,7 +107,7 @@ motion:
 streaming:
   # Hardware streaming publisher settings (use with MediaMTX or another RTSP/HLS relay).
   # If publish_url is set, the recorder will push the main stream via Picamera2's PyAV output.
-  publish_url:
+  publish_url: rtsp://127.0.0.1:8554/cam
   # Format passed to PyavOutput (rtsp, rtsp+tcp, rtmp, hls, etc.).
   publish_format: rtsp
   # Optional key/value string map passed as PyAV options (e.g., {"rtsp_transport": "tcp"}).
@@ -116,6 +116,11 @@ streaming:
   bitrate:
   # Public URL the web UI should embed or link to (for MediaMTX this is typically http://host:8889/cam).
   public_url:
+  # Optional fallback viewer settings when public_url is omitted.
+  viewer_protocol: http
+  viewer_port: 8889
+  # If unset, the viewer path defaults to the publish_url stream name (e.g., cam).
+  viewer_path:
 
 clip_processing:
   # Directory containing recorded clips to process (defaults to recorder.output_dir).
