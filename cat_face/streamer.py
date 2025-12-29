@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+import threading
+import time
 from typing import Dict, Optional
 
 from cat_face.camera import PICAMERA2_AVAILABLE
@@ -38,24 +40,65 @@ class PicameraRTSPPublisher:
         if not target:
             raise ValueError("Streaming target URL must be provided.")
         self._picamera = picamera
-        self._encoder = H264Encoder(bitrate=max(int(bitrate), 1_000_000))  # type: ignore[name-defined]
-        opts = {str(k): str(v) for k, v in (options or {}).items()}
-        self._output = PyavOutput(target, format=fmt, options=opts)  # type: ignore[name-defined]
+        self._target = str(target)
+        self._fmt = str(fmt)
+        self._options = {str(k): str(v) for k, v in (options or {}).items()}
+        self._bitrate = max(int(bitrate), 1_000_000)
+        self._lock = threading.Lock()
         self._active = False
-        self.start()
+        self._encoder = None
+        self._output = None
+        self._restart_thread: Optional[threading.Thread] = None
+        self._start_locked()
 
     def start(self) -> None:
-        if self._active:
-            return
-        self._picamera.start_encoder(self._encoder, self._output)  # type: ignore[attr-defined]
-        self._active = True
+        with self._lock:
+            if self._active:
+                return
+            self._start_locked()
 
     def stop(self) -> None:
-        if not self._active:
+        with self._lock:
+            self._stop_locked()
+
+    # Internal helpers -------------------------------------------------
+
+    def _create_output(self):
+        output = PyavOutput(self._target, format=self._fmt, options=self._options)  # type: ignore[name-defined]
+        if hasattr(output, "error_callback"):
+            output.error_callback = self._handle_output_error  # type: ignore[attr-defined]
+        return output
+
+    def _start_locked(self) -> None:
+        self._encoder = H264Encoder(bitrate=self._bitrate)  # type: ignore[name-defined]
+        self._output = self._create_output()
+        self._picamera.start_encoder(self._encoder, self._output)  # type: ignore[attr-defined]
+        self._active = True
+        logger.info("Streaming publisher connected to %s (%s)", self._target, self._fmt)
+
+    def _stop_locked(self) -> None:
+        if self._encoder is None:
             return
         try:
-            self._picamera.stop_encoder(self._encoder)  # type: ignore[attr-defined]
-        except Exception as exc:  # pragma: no cover - defensive
+            if self._active:
+                self._picamera.stop_encoder(self._encoder)  # type: ignore[attr-defined]
+        except Exception as exc:  # pragma: no cover
             logger.warning("Failed to stop streaming encoder cleanly: %s", exc)
         finally:
             self._active = False
+            self._encoder = None
+            self._output = None
+
+    def _handle_output_error(self, exc: Exception) -> None:
+        logger.warning("Streaming output error: %s", exc)
+        def restart():
+            with self._lock:
+                self._stop_locked()
+                time.sleep(0.5)
+                try:
+                    self._start_locked()
+                except Exception as restart_exc:
+                    logger.error("Unable to restart streaming publisher: %s", restart_exc)
+        thread = threading.Thread(target=restart, daemon=True)
+        thread.start()
+        self._restart_thread = thread
