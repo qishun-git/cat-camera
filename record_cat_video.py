@@ -225,7 +225,11 @@ def main() -> None:
     stream_publish_url = streaming_cfg.get("publish_url")
     stream_publish_format = streaming_cfg.get("publish_format", "rtsp")
     stream_publish_options = streaming_cfg.get("publish_options") or {}
-    stream_bitrate = int(streaming_cfg.get("bitrate", recorder_cfg.picamera_bitrate))
+    bitrate_value = streaming_cfg.get("bitrate")
+    if bitrate_value is None:
+        stream_bitrate = recorder_cfg.picamera_bitrate
+    else:
+        stream_bitrate = int(bitrate_value)
 
     motion_defaults = {
         "history": 300,
