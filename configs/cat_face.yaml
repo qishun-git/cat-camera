@@ -16,8 +16,7 @@ vision:
   camera_index: 0
   # Size (pixels) used for preprocessing/training/recognition.
   face_size: 224
-  # Prefer Picamera2 on Raspberry Pi (falls back to OpenCV if unavailable).
-  prefer_picamera2: true
+  # Picamera2 is required for recording; these settings control its stream.
   # Resolution for Picamera2 capture (width, height).
   picamera_resolution: [1280, 720]
   # Target FPS for Picamera2 capture.
@@ -86,6 +85,8 @@ recorder:
   fps: 0
   # FourCC codec used by OpenCV VideoWriter (use avc1 for H.264 compatibility).
   codec: avc1
+  # Target bitrate (bits/sec) for Picamera2's native H.264 encoder.
+  picamera_bitrate: 10000000
 
 motion:
   # Background subtractor history (frames) for motion detection.

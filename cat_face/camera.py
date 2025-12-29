@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import time
-from typing import Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -138,18 +138,13 @@ class Picamera2Camera(CameraInterface):
 
 def create_camera(
     camera_index: int = 0,
-    prefer_picamera: bool = False,
     picamera_resolution: Optional[Tuple[int, int]] = None,
     picamera_fps: Optional[float] = None,
     opencv_resolution: Optional[Tuple[int, int]] = None,
 ) -> CameraInterface:
-    if prefer_picamera:
-        if not PICAMERA2_AVAILABLE:
-            raise CameraError(
-                "Picamera2 was requested but is not available. Install picamera2 or disable 'prefer_picamera2'."
-            )
-        return Picamera2Camera(
-            resolution=picamera_resolution,
-            target_fps=picamera_fps,
-        )
-    return OpenCVCamera(camera_index, resolution=opencv_resolution)
+    if not PICAMERA2_AVAILABLE:
+        raise CameraError("Picamera2 is required but not available on this system.")
+    return Picamera2Camera(
+        resolution=picamera_resolution,
+        target_fps=picamera_fps,
+    )

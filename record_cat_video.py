@@ -2,17 +2,28 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
+from abc import ABC, abstractmethod
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple
 
 import cv2
+import numpy as np
 
-from cat_face.camera import CameraError, create_camera
+from cat_face.camera import CameraError, CameraInterface, PICAMERA2_AVAILABLE
 from cat_face.streamer import MJPEGStreamer
 from cat_face.utils import configure_logging, ensure_dir, load_project_config, resolve_paths
 
 logger = logging.getLogger(__name__)
+
+if PICAMERA2_AVAILABLE:
+    from picamera2 import Picamera2  # type: ignore
+    from picamera2.encoders import H264Encoder  # type: ignore
+    from picamera2.outputs import FfmpegOutput  # type: ignore
+else:
+    Picamera2 = None  # type: ignore
+    H264Encoder = None  # type: ignore
+    FfmpegOutput = None  # type: ignore
 
 
 @dataclass
@@ -24,6 +35,7 @@ class RecorderConfig:
     absence_grace: float
     fps_override: Optional[float]
     codec: str
+    picamera_bitrate: int
 
     @classmethod
     def from_project(cls, project_config: Dict[str, Any], base_path: Path) -> "RecorderConfig":
@@ -35,6 +47,7 @@ class RecorderConfig:
             "absence_grace": 1.0,
             "fps": 0.0,
             "codec": "mp4v",
+            "picamera_bitrate": 10_000_000,
         }
         raw_cfg = defaults | (project_config.get("recorder") or {})
         min_duration = max(float(raw_cfg["min_duration"]), 0.0)
@@ -53,12 +66,82 @@ class RecorderConfig:
             absence_grace=absence_grace,
             fps_override=fps_override,
             codec=str(raw_cfg.get("codec", "mp4v")),
+            picamera_bitrate=int(raw_cfg.get("picamera_bitrate", 10_000_000)),
         )
+
+
+class RecordingBackend(ABC):
+    @abstractmethod
+    def start(self, frame: np.ndarray, temp_path: Path, fps: float) -> None:
+        """Prepare backend resources for a new clip."""
+
+    @abstractmethod
+    def handle_frame(self, frame: np.ndarray) -> None:
+        """Consume another frame (no-op for Picamera)."""
+
+    @abstractmethod
+    def stop(self) -> None:
+        """Release backend resources (finalize or discard)."""
+
+
+class OpenCVRecordingBackend(RecordingBackend):
+    def __init__(self, fourcc: int) -> None:
+        self._fourcc = fourcc
+        self._writer: Optional[cv2.VideoWriter] = None
+
+    def start(self, frame: np.ndarray, temp_path: Path, fps: float) -> None:
+        height, width = frame.shape[:2]
+        writer = cv2.VideoWriter(str(temp_path), self._fourcc, fps, (width, height))
+        if not writer.isOpened():
+            raise RuntimeError("Unable to create video writer for clip recording.")
+        self._writer = writer
+
+    def handle_frame(self, frame: np.ndarray) -> None:
+        if self._writer is not None:
+            self._writer.write(frame)
+
+    def stop(self) -> None:
+        if self._writer is not None:
+            self._writer.release()
+            self._writer = None
+
+
+class PicameraRecordingBackend(RecordingBackend):
+    def __init__(self, picamera: Picamera2, bitrate: int) -> None:  # type: ignore[valid-type]
+        if Picamera2 is None or H264Encoder is None or FfmpegOutput is None:
+            raise RuntimeError("Picamera2 native backend requested but Picamera2 is unavailable.")
+        self._picamera = picamera
+        self._bitrate = max(int(bitrate), 1_000_000)
+        self._encoder: Optional[H264Encoder] = None  # type: ignore[name-defined]
+        self._output: Optional[FfmpegOutput] = None  # type: ignore[name-defined]
+
+    def start(self, frame: np.ndarray, temp_path: Path, fps: float) -> None:
+        self._encoder = H264Encoder(bitrate=self._bitrate)  # type: ignore[name-defined]
+        self._output = FfmpegOutput(str(temp_path))  # type: ignore[name-defined]
+        self._picamera.start_recording(self._encoder, self._output, name="main")  # type: ignore[arg-type]
+
+    def handle_frame(self, frame: np.ndarray) -> None:
+        # Picamera recordings are handled directly by the ISP.
+        return
+
+    def stop(self) -> None:
+        if self._encoder is None:
+            return
+        try:
+            self._picamera.stop_recording()  # type: ignore[call-arg]
+        finally:
+            if self._output and hasattr(self._output, "close"):
+                try:
+                    self._output.close()  # type: ignore[call-arg]
+                except Exception:
+                    pass
+            self._encoder = None
+            self._output = None
 
 
 @dataclass
 class ClipSession:
-    writer: cv2.VideoWriter
+    backend: RecordingBackend
     final_path: Path
     temp_path: Path
     fps: float
@@ -66,7 +149,7 @@ class ClipSession:
     last_detection_time: float
 
     def append_frame(self, frame: Any) -> None:
-        self.writer.write(frame)
+        self.backend.handle_frame(frame)
 
     def duration(self, now: float) -> float:
         return now - self.start_time
@@ -83,24 +166,21 @@ def timestamp_name() -> str:
 
 
 def create_clip_session(
-    frame: Any,
+    frame: np.ndarray,
     now: float,
     cfg: RecorderConfig,
-    fourcc: int,
+    backend: RecordingBackend,
     camera_fps: Optional[float],
 ) -> ClipSession:
     clip_name = f"cat_{timestamp_name()}.mp4"
     final_path = cfg.output_dir / clip_name
     temp_path = cfg.output_dir / f"{final_path.stem}_tmp{final_path.suffix}"
 
-    frame_height, frame_width = frame.shape[:2]
     fps = cfg.fps_override or camera_fps or 30.0
-    writer = cv2.VideoWriter(str(temp_path), fourcc, fps, (frame_width, frame_height))
-    if not writer.isOpened():
-        raise RuntimeError("Unable to create video writer for clip recording.")
+    backend.start(frame, temp_path, fps)
 
     return ClipSession(
-        writer=writer,
+        backend=backend,
         final_path=final_path,
         temp_path=temp_path,
         fps=fps,
@@ -121,15 +201,18 @@ def _promote_clip(temp_path: Path, final_path: Path) -> Path:
 
 
 def finalize_clip(session: ClipSession, reason: str) -> None:
-    session.writer.release()
+    session.backend.stop()
     saved_path = _promote_clip(session.temp_path, session.final_path)
     logger.info("Recording saved (%s): %s", reason, saved_path)
 
 
 def discard_clip(session: ClipSession, message: str) -> None:
-    session.writer.release()
+    session.backend.stop()
     if session.temp_path.exists():
-        session.temp_path.unlink(missing_ok=True)
+        try:
+            session.temp_path.unlink()
+        except OSError as exc:
+            logger.warning("Failed to delete %s: %s", session.temp_path, exc)
     logger.info("%s", message)
 
 
@@ -146,6 +229,7 @@ def main() -> None:
         stream_resolution = None
     stream_quality = int(streaming_cfg.get("quality", 80))
     status_path = streaming_cfg.get("status_path")
+
     motion_defaults = {
         "history": 300,
         "var_threshold": 16,
@@ -157,28 +241,26 @@ def main() -> None:
     }
     motion_cfg = motion_defaults | (config.get("motion") or {})
 
-    camera_index = int(vision_cfg["camera_index"])
-    prefer_picamera = bool(vision_cfg.get("prefer_picamera2", False))
     resolution_cfg = vision_cfg.get("picamera_resolution")
     if isinstance(resolution_cfg, (list, tuple)) and len(resolution_cfg) >= 2:
         picamera_resolution = (int(resolution_cfg[0]), int(resolution_cfg[1]))
     else:
         picamera_resolution = None
-    picamera_fps = vision_cfg.get("picamera_fps")
-    picamera_fps = float(picamera_fps) if picamera_fps else None
-    opencv_resolution = stream_resolution or picamera_resolution
-    try:
-        camera = create_camera(
-            camera_index=camera_index,
-            prefer_picamera=prefer_picamera,
-            picamera_resolution=picamera_resolution,
-            picamera_fps=picamera_fps,
-            opencv_resolution=opencv_resolution,
-        )
-    except CameraError as exc:
-        raise RuntimeError(str(exc)) from exc
+    picamera_fps = float(vision_cfg.get("picamera_fps", 0.0))
 
-    fourcc = cv2.VideoWriter_fourcc(*recorder_cfg.codec)
+    if not (PICAMERA2_AVAILABLE and Picamera2 is not None):
+        raise RuntimeError("Picamera2 is required to run the recorder. Install picamera2 on your Pi.")
+
+    lores_resolution = stream_resolution or (640, 360)
+    camera: CameraInterface = PicameraFrameSource(
+        resolution=picamera_resolution,
+        preview_resolution=lores_resolution,
+        target_fps=picamera_fps,
+    )
+    backend_factory: Callable[[], RecordingBackend] = lambda: PicameraRecordingBackend(  # type: ignore[attr-defined]
+        camera.picamera,
+        recorder_cfg.picamera_bitrate,
+    )
 
     streamer: Optional[MJPEGStreamer] = None
     try:
@@ -194,6 +276,20 @@ def main() -> None:
         logger.warning("Unable to start MJPEG streamer: %s", exc)
         streamer = None
 
+    try:
+        run_motion_recorder(camera, recorder_cfg, motion_cfg, backend_factory, streamer)
+    finally:
+        if streamer:
+            streamer.stop()
+
+
+def run_motion_recorder(
+    camera: CameraInterface,
+    recorder_cfg: RecorderConfig,
+    motion_cfg: Dict[str, Any],
+    backend_factory: Callable[[], RecordingBackend],
+    streamer: Optional[MJPEGStreamer],
+) -> None:
     bg_subtractor = cv2.createBackgroundSubtractorMOG2(
         history=int(motion_cfg.get("history", 300)),
         varThreshold=float(motion_cfg.get("var_threshold", 16.0)),
@@ -229,7 +325,6 @@ def main() -> None:
             if dilation_iterations > 0:
                 motion_mask = cv2.dilate(motion_mask, None, iterations=dilation_iterations)
 
-            motion_boxes: List[Tuple[int, int, int, int]] = []
             had_motion = False
             if frame_counter > warmup_frames:
                 frame_area = motion_mask.shape[0] * motion_mask.shape[1]
@@ -239,9 +334,8 @@ def main() -> None:
                     for contour in contours:
                         if cv2.contourArea(contour) < min_area:
                             continue
-                        x, y, w, h = cv2.boundingRect(contour)
-                        motion_boxes.append((x, y, w, h))
-                had_motion = bool(motion_boxes)
+                        had_motion = True
+                        break
 
             if streamer:
                 streamer.push_frame(frame)
@@ -251,11 +345,12 @@ def main() -> None:
                 if session is None:
                     if (now - last_clip_time) < recorder_cfg.cooldown:
                         continue
+                    backend = backend_factory()
                     session = create_clip_session(
                         frame,
                         now,
                         recorder_cfg,
-                        fourcc,
+                        backend,
                         camera.fps,
                     )
                     logger.info(
@@ -280,10 +375,9 @@ def main() -> None:
                         discard_clip(session, "Discarded clip (motion ended before minimum duration).")
                     session = None
                     last_clip_time = now
-
+    except KeyboardInterrupt:
+        logger.info("Stopping recorder (Ctrl+C).")
     finally:
-        if streamer:
-            streamer.stop()
         if session is not None:
             if session.duration(time.time()) >= recorder_cfg.min_duration:
                 logger.info("Finalizing clip before exit...")
@@ -292,6 +386,117 @@ def main() -> None:
                 discard_clip(session, "Discarding unfinished clip (insufficient duration).")
             session = None
         camera.release()
+
+
+class PicameraFrameSource(CameraInterface):
+    def __init__(
+        self,
+        resolution: Optional[Tuple[int, int]],
+        preview_resolution: Optional[Tuple[int, int]],
+        target_fps: float,
+    ) -> None:
+        if Picamera2 is None:
+            raise CameraError("Picamera2 is not available on this system.")
+        self._picam = Picamera2()
+        main_config: Dict[str, Any] = {"format": "YUV420"}
+        if resolution:
+            main_config["size"] = resolution
+        lores_size = preview_resolution or resolution or (640, 360)
+        self._lores_size = (int(lores_size[0]), int(lores_size[1]))
+        lores_config: Dict[str, Any] = {
+            "format": "YUV420",
+            "size": self._lores_size,
+        }
+        controls: Dict[str, Any] = {}
+        self._fps = float(target_fps) if target_fps and target_fps > 0 else 0.0
+        if self._fps > 0:
+            frame_duration = int(1_000_000 / self._fps)
+            controls["FrameDurationLimits"] = (frame_duration, frame_duration)
+        config = self._picam.create_video_configuration(
+            main=main_config,
+            lores=lores_config,
+            controls=controls,
+            buffer_count=6,
+        )
+        self._picam.configure(config)
+        self._picam.start()
+        time.sleep(0.05)
+        if self._fps <= 0:
+            self._fps = self._measure_running_fps()
+        if self._fps <= 0:
+            self._fps = 30.0
+        self._open = True
+
+    def read(self) -> Tuple[bool, np.ndarray]:
+        try:
+            frame = self._picam.capture_array("lores")
+        except Exception as exc:
+            logger.error("Failed to capture frame from Picamera2: %s", exc)
+            return False, np.zeros((1, 1, 3), dtype=np.uint8)
+        bgr = self._convert_to_bgr(frame)
+        return True, bgr
+
+    def release(self) -> None:
+        if not self._open:
+            return
+        try:
+            self._picam.close()
+        finally:
+            self._open = False
+
+    @property
+    def fps(self) -> float:
+        return self._fps
+
+    @property
+    def is_open(self) -> bool:
+        return self._open
+
+    @property
+    def picamera(self) -> Picamera2:  # type: ignore[valid-type]
+        return self._picam
+
+    def _measure_running_fps(self) -> float:
+        for _ in range(5):
+            try:
+                metadata = self._picam.capture_metadata()
+            except Exception:
+                metadata = None
+            frame_duration = None
+            if isinstance(metadata, dict):
+                frame_duration = metadata.get("FrameDuration")
+                if not frame_duration:
+                    limits = metadata.get("FrameDurationLimits")
+                    if isinstance(limits, (list, tuple)) and limits:
+                        frame_duration = limits[0]
+            if frame_duration:
+                try:
+                    fps = 1_000_000.0 / float(frame_duration)
+                    if fps > 0:
+                        return fps
+                except (TypeError, ZeroDivisionError):
+                    pass
+            time.sleep(0.02)
+        return 0.0
+
+    def _convert_to_bgr(self, frame: np.ndarray) -> np.ndarray:
+        if frame.ndim == 3:
+            channels = frame.shape[2]
+            if channels == 4:
+                return cv2.cvtColor(frame, cv2.COLOR_RGBA2BGR)
+            if channels == 3:
+                return cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+            if channels == 2:
+                return cv2.cvtColor(frame, cv2.COLOR_YUV2BGR_YUY2)
+        if frame.ndim == 2:
+            width, height = self._lores_size
+            expected_rows = int(height * 1.5)
+            if frame.shape[0] == expected_rows and frame.shape[1] == width:
+                return cv2.cvtColor(frame, cv2.COLOR_YUV2BGR_I420)
+        frame = np.atleast_3d(frame)
+        if frame.shape[2] == 1:
+            frame = np.repeat(frame, 3, axis=2)
+        return frame[:, :, :3]
 
 
 if __name__ == "__main__":
