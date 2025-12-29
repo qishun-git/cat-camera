@@ -122,6 +122,8 @@ streaming:
 clip_processing:
   # Directory containing recorded clips to process (defaults to recorder.output_dir).
   clips_dir: data/compressed_clips
+  # Set to false to skip compression (files are just moved instead of re-encoded).
+  enable_compression: false
   # Optional cap on the number of faces saved per clip (null/0 for unlimited).
   save_limit: 100
   # Number of frames to promote into training when a cat is auto-recognized.

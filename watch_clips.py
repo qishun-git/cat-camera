@@ -11,13 +11,24 @@ from cat_face.utils import configure_logging, ensure_dir, load_project_config, r
 logger = logging.getLogger(__name__)
 
 
-def compress_clip(src: Path, dest_dir: Path, crf: int) -> None:
+def _unique_destination(dest_dir: Path, src: Path) -> Path:
     dest_dir = ensure_dir(dest_dir)
     dest = dest_dir / src.name
     counter = 1
     while dest.exists():
         dest = dest_dir / f"{src.stem}_{counter}{src.suffix}"
         counter += 1
+    return dest
+
+
+def move_clip(src: Path, dest_dir: Path) -> None:
+    dest = _unique_destination(dest_dir, src)
+    src.replace(dest)
+    logger.info("Moved %s -> %s (compression disabled)", src, dest)
+
+
+def compress_clip(src: Path, dest_dir: Path, crf: int) -> None:
+    dest = _unique_destination(dest_dir, src)
     cmd = [
         "ffmpeg",
         "-y",
@@ -47,18 +58,27 @@ def main() -> None:
     compressed_dir = Path(processing_cfg.get("clips_dir") or (paths["base"] / "compressed_clips"))
     crf = int(processing_cfg.get("compression_crf", 28))
     interval = float(processing_cfg.get("watch_interval", 5.0))
+    enable_compression = bool(processing_cfg.get("enable_compression", True))
 
     if not raw_dir.exists():
         raise FileNotFoundError(f"Recorder output directory not found: {raw_dir}")
     ensure_dir(compressed_dir)
 
-    logger.info("Watching %s for new clips. Compressed output -> %s", raw_dir, compressed_dir)
+    logger.info(
+        "Watching %s for new clips. Output -> %s (%s)",
+        raw_dir,
+        compressed_dir,
+        "compressing" if enable_compression else "copy-only",
+    )
     try:
         while True:
             new_clips = sorted(p for p in raw_dir.glob("*.mp4") if not p.stem.endswith("_tmp"))
             for clip in new_clips:
                 try:
-                    compress_clip(clip, compressed_dir, crf)
+                    if enable_compression:
+                        compress_clip(clip, compressed_dir, crf)
+                    else:
+                        move_clip(clip, compressed_dir)
                 except subprocess.CalledProcessError as exc:
                     logger.error("Compression failed for %s: %s", clip, exc)
             process_clips_main()
