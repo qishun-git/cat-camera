@@ -216,7 +216,6 @@ def main() -> None:
     elif blur_kernel % 2 == 0:
         blur_kernel += 1
 
-    print("Press Q to exit.")
     last_clip_time = 0.0
     session: Optional[ClipSession] = None
     frame_counter = 0

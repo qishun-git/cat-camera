@@ -166,7 +166,6 @@ def main() -> None:
     total_saved = 0
     clip_paths = iterate_clips(clips_dir)
     if not clip_paths:
-        print(f"No clips found in {clips_dir}")
         return
 
     detection_interval = float(processing_cfg.get("detection_interval", 0.5) or 0.0)
