@@ -11,6 +11,10 @@ from cat_face.utils import configure_logging, ensure_dir, load_project_config, r
 logger = logging.getLogger(__name__)
 
 
+def clip_recording_marker(path: Path) -> Path:
+    return path.with_suffix(f"{path.suffix}.recording")
+
+
 def _unique_destination(dest_dir: Path, src: Path) -> Path:
     dest_dir = ensure_dir(dest_dir)
     dest = dest_dir / src.name
@@ -92,5 +96,3 @@ def main() -> None:
 if __name__ == "__main__":
     configure_logging()
     main()
-def clip_recording_marker(path: Path) -> Path:
-    return path.with_suffix(f"{path.suffix}.recording")
