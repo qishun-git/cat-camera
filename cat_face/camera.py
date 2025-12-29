@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import time
-from typing import Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -75,18 +75,19 @@ class Picamera2Camera(CameraInterface):
         main_config = {"format": "RGB888"}
         if resolution:
             main_config["size"] = resolution
-        controls = {}
-        if target_fps and target_fps > 0:
-            frame_duration = int(1_000_000 / target_fps)
+        self._fps = float(target_fps) if target_fps and target_fps > 0 else 0.0
+        controls: Dict[str, Any] = {}
+        if self._fps > 0:
+            frame_duration = int(1_000_000 / self._fps)
             controls["FrameDurationLimits"] = (frame_duration, frame_duration)
-            self._fps = float(target_fps)
-        else:
-            self._fps = 0.0
-        controls_payload = controls or {}
-        config = self._picam.create_video_configuration(main=main_config, controls=controls_payload)
+        config = self._picam.create_video_configuration(main=main_config, controls=controls)
         self._picam.configure(config)
         self._picam.start()
         time.sleep(0.05)
+        if self._fps <= 0:
+            self._fps = self._measure_running_fps()
+        if self._fps <= 0:
+            self._fps = 30.0
 
     def read(self) -> Tuple[bool, np.ndarray]:
         frame = self._picam.capture_array("main")
@@ -98,6 +99,29 @@ class Picamera2Camera(CameraInterface):
     def release(self) -> None:
         if self._picam:
             self._picam.close()
+
+    def _measure_running_fps(self) -> float:
+        for _ in range(5):
+            try:
+                metadata = self._picam.capture_metadata()
+            except Exception:
+                metadata = None
+            frame_duration = None
+            if isinstance(metadata, dict):
+                frame_duration = metadata.get("FrameDuration")
+                if not frame_duration:
+                    limits = metadata.get("FrameDurationLimits")
+                    if isinstance(limits, (list, tuple)) and limits:
+                        frame_duration = limits[0]
+            if frame_duration:
+                try:
+                    fps = 1_000_000.0 / float(frame_duration)
+                    if fps > 0:
+                        return fps
+                except (TypeError, ZeroDivisionError):
+                    pass
+            time.sleep(0.02)
+        return 0.0
 
     @property
     def fps(self) -> float:
