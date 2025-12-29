@@ -138,7 +138,7 @@ class SharedPicameraEncoder:
         self._encoder = H264Encoder(bitrate=max(int(bitrate), 1_000_000))  # type: ignore[name-defined]
         self._lock = threading.Lock()
         self._clip_output: Optional[PyavOutput] = None
-        self._active_final_path: Optional[Path] = None
+        self._active_clip_path: Optional[Path] = None
         self._stream_output = PyavOutput(publish_url, format=publish_format, options=publish_options)
         self._circular = CircularOutput2()
         self._encoder.output = [self._stream_output, self._circular]
@@ -153,13 +153,13 @@ class SharedPicameraEncoder:
             if self._clip_output is not None:
                 raise RuntimeError("Recorder already writing a clip.")
             self._clip_output = clip_output
-            self._active_final_path = clip_path
+            self._active_clip_path = clip_path
         try:
             self._circular.open_output(clip_output)
         except Exception:
             with self._lock:
                 self._clip_output = None
-                self._active_final_path = None
+                self._active_clip_path = None
             raise
 
     def stop_clip(self, keep: bool) -> None:
@@ -167,9 +167,9 @@ class SharedPicameraEncoder:
         with self._lock:
             if self._clip_output is None:
                 return
-            final_path = self._active_final_path
+            final_path = self._active_clip_path
             self._clip_output = None
-            self._active_final_path = None
+            self._active_clip_path = None
         try:
             self._circular.close_output()
         except Exception as exc:
@@ -231,6 +231,7 @@ class SharedEncoderBackend(RecordingBackend):
 class ClipSession:
     backend: RecordingBackend
     clip_path: Path
+    tmp_path: Path
     fps: float
     start_time: float
     last_detection_time: float
@@ -266,13 +267,20 @@ def create_clip_session(
         final_path = cfg.output_dir / f"{final_path.stem}_{counter}{final_path.suffix}"
         counter += 1
     final_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = final_path.with_name(f"{final_path.stem}_tmp{final_path.suffix}")
+    if tmp_path.exists():
+        try:
+            tmp_path.unlink()
+        except OSError as exc:
+            logger.warning("Failed to clean up stale temp clip %s: %s", tmp_path, exc)
 
     fps = cfg.fps_override or camera_fps or 30.0
-    backend.start(frame, final_path, fps)
+    backend.start(frame, tmp_path, fps)
 
     return ClipSession(
         backend=backend,
         clip_path=final_path,
+        tmp_path=tmp_path,
         fps=fps,
         start_time=now,
         last_detection_time=now,
@@ -281,16 +289,27 @@ def create_clip_session(
 
 def finalize_clip(session: ClipSession, reason: str) -> None:
     session.backend.stop(keep=True)
+    try:
+        if session.tmp_path.exists():
+            session.tmp_path.rename(session.clip_path)
+        else:
+            logger.warning("Missing temp clip for %s; nothing to finalize.", session.clip_path)
+            return
+    except OSError as exc:
+        logger.error("Failed to finalize clip %s: %s", session.clip_path, exc)
+        return
     logger.info("Recording saved (%s): %s", reason, session.clip_path)
 
 
 def discard_clip(session: ClipSession, message: str) -> None:
     session.backend.stop(keep=False)
-    if session.clip_path.exists():
+    for path in (session.tmp_path, session.clip_path):
+        if not path.exists():
+            continue
         try:
-            session.clip_path.unlink()
+            path.unlink()
         except OSError as exc:
-            logger.warning("Failed to delete %s: %s", session.clip_path, exc)
+            logger.warning("Failed to delete %s: %s", path, exc)
     logger.info("%s", message)
 
 

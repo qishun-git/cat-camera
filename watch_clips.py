@@ -74,6 +74,8 @@ def main() -> None:
         while True:
             new_clips = sorted(raw_dir.glob("*.mp4"))
             for clip in new_clips:
+                if clip.stem.endswith("_tmp"):
+                    continue
                 try:
                     if enable_compression:
                         compress_clip(clip, compressed_dir, crf)
