@@ -365,7 +365,7 @@ def main() -> None:
         preview_resolution=lores_resolution,
         target_fps=picamera_fps,
     )
-    active_tmp_dir = ensure_dir(recorder_cfg.output_dir / ".active")
+    active_tmp_dir = ensure_dir(recorder_cfg.output_dir / "active")
     shared_encoder: Optional[SharedPicameraEncoder] = None
     backend_factory: Callable[[], RecordingBackend]
     if stream_publish_url:
