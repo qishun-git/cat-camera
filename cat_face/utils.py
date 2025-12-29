@@ -88,10 +88,24 @@ def rotate_files(directory: Path, limit: int) -> int:
     return removed
 
 
+def _require(config: Dict[str, Any], key_path: List[str]) -> None:
+    cursor: Any = config
+    for idx, key in enumerate(key_path):
+        if not isinstance(cursor, dict) or key not in cursor:
+            raise ValueError(
+                f"Missing required config key: {'.'.join(key_path[: idx + 1])}"
+            )
+        cursor = cursor[key]
+
+
 def load_project_config(path: Path | str | None = None) -> Dict[str, Any]:
-    """Load the unified project configuration."""
+    """Load the unified project configuration and ensure required keys exist."""
     config_path = Path(path) if path else PROJECT_CONFIG_FILE
-    return load_yaml(config_path)
+    cfg = load_yaml(config_path)
+    # Required keys: detection.model and streaming.public_url for the web UI.
+    _require(cfg, ["detection", "model"])
+    _require(cfg, ["streaming", "public_url"])
+    return cfg
 
 
 def _expand_path(value: str | Path | None, default: Path) -> Path:

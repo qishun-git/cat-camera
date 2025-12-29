@@ -83,7 +83,7 @@ recorder:
   # Grace period (seconds) after the last detection before ending a clip.
   absence_grace: 5.0
   # Preferred output FPS (0 or null falls back to camera FPS).
-  fps: 15
+  fps: 0
   # FourCC codec used by OpenCV VideoWriter (default mp4v -> MP4-friendly capture).
   codec: mp4v
 
@@ -134,3 +134,5 @@ clip_processing:
   watch_interval: 5.0
   # How often to run YOLO when scanning clips (seconds); 0 runs every frame.
   detection_interval: 0.5
+  # Padding (seconds) to keep before first and after last detected cat when trimming clips.
+  trim_padding_seconds: 1.0

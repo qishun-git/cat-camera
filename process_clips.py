@@ -65,6 +65,54 @@ def write_annotation_sidecar(
     print(f"Wrote annotation sidecar: {json_path}")
 
 
+def trim_clip_to_range(clip_path: Path, start_frame: int, end_frame: int, fps: float) -> None:
+    if start_frame <= 1 and end_frame <= 0:
+        return
+    cap = cv2.VideoCapture(str(clip_path))
+    if not cap.isOpened():
+        print(f"Warning: unable to reopen {clip_path} for trimming.")
+        return
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+    if not width or not height:
+        cap.release()
+        return
+    if fps <= 0:
+        fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    safe_start = max(1, min(start_frame, total_frames or start_frame))
+    safe_end = max(safe_start, min(end_frame, total_frames or end_frame))
+    if safe_start == 1 and (total_frames == 0 or safe_end >= total_frames):
+        cap.release()
+        return
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    temp_path = clip_path.with_suffix(".trim_tmp" + clip_path.suffix)
+    writer = cv2.VideoWriter(str(temp_path), fourcc, fps, (width, height))
+    if not writer.isOpened():
+        cap.release()
+        return
+    frame_idx = 0
+    try:
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+            frame_idx += 1
+            if frame_idx < safe_start:
+                continue
+            if frame_idx > safe_end:
+                break
+            writer.write(frame)
+    finally:
+        cap.release()
+        writer.release()
+    try:
+        temp_path.replace(clip_path)
+        print(f"Trimmed clip to frames {safe_start}-{safe_end}: {clip_path}")
+    except OSError as exc:
+        print(f"Warning: failed to replace {clip_path} after trimming: {exc}")
+
+
 def load_recognizer(config: Dict[str, object], paths: Dict[str, Path]) -> Tuple[Optional[EmbeddingRecognizer], Dict[int, str]]:
     training_cfg = config.get("training", {})
     recog_cfg = config.get("recognition", {})
@@ -122,6 +170,9 @@ def main() -> None:
         return
 
     detection_interval = float(processing_cfg.get("detection_interval", 0.5) or 0.0)
+    trim_padding = float(processing_cfg.get("trim_padding_seconds", 1.0))
+    if trim_padding < 0:
+        trim_padding = 0.0
 
     for clip_path in clip_paths:
         cap = cv2.VideoCapture(str(clip_path))
@@ -133,6 +184,7 @@ def main() -> None:
         recognized_samples: List[Tuple[str, float, Any]] = []
         frame_annotations: Dict[int, List[Tuple[Tuple[int, int, int, int], Optional[str], float]]] = {}
         frame_index = 0
+        clip_fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
         print(f"Processing clip: {clip_path}")
         last_detection_ts = -float("inf")
         last_detections: List[Tuple[int, int, int, int]] = []
@@ -141,7 +193,7 @@ def main() -> None:
             if not ret:
                 break
             frame_index += 1
-            now = frame_index / (cap.get(cv2.CAP_PROP_FPS) or 30.0)
+            now = frame_index / (clip_fps or 30.0)
             if detection_interval <= 0 or (now - last_detection_ts) >= detection_interval:
                 faces = detector.detect(frame)
                 last_detection_ts = now
@@ -162,6 +214,7 @@ def main() -> None:
                             recognized_samples.append((label_name, score_value, processed))
                 frame_annotations.setdefault(frame_index, []).append(((x, y, w, h), label_name, float(score_value)))
         cap.release()
+        total_frames = frame_index
 
         best_label: Optional[str] = None
         best_score = float("-inf")
@@ -185,16 +238,27 @@ def main() -> None:
                     best_label = label_name
                     best_score = score
 
-        summary_prefix = (
-            f"[SUMMARY] {clip_path.name}: detections={detection_total}, recognized={recognized_total}"
-        )
         if detection_total == 0:
             try:
                 clip_path.unlink(missing_ok=True)
-                print(f"{summary_prefix} -> deleted (no cat detections)")
+                print(f"[SUMMARY] {clip_path.name}: detections=0 -> deleted (no cat detections)")
             except OSError as exc:
                 print(f"Warning: failed to delete {clip_path}: {exc}")
             continue
+
+        padding_frames = int(round(trim_padding * (clip_fps or 30.0)))
+        frame_ids = [idx for idx, _, _ in detection_samples]
+        first_det = min(frame_ids)
+        last_det = max(frame_ids)
+        start_frame = max(1, first_det - padding_frames)
+        end_frame = last_det + padding_frames
+        if total_frames:
+            end_frame = min(total_frames, end_frame)
+        trim_clip_to_range(clip_path, start_frame, end_frame, clip_fps or 30.0)
+
+        summary_prefix = (
+            f"[SUMMARY] {clip_path.name}: detections={detection_total}, recognized={recognized_total}"
+        )
         if best_label:
             label_count = counts.get(best_label, 0)
             print(
@@ -202,9 +266,7 @@ def main() -> None:
                 f"(label detections {label_count}/{detection_total})"
             )
         else:
-            if detection_total == 0:
-                reason = "no faces detected"
-            elif not recognizer:
+            if not recognizer:
                 reason = "recognizer unavailable"
             elif recognized_total == 0:
                 reason = "faces detected but none matched known cats"
