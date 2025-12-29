@@ -146,7 +146,7 @@ class SharedPicameraEncoder:
         self._clip_output: Optional[PyavOutput] = None
         self._active_final_path: Optional[Path] = None
         self._stream_output = PyavOutput(publish_url, format=publish_format, options=publish_options)
-        self._circular = CircularOutput2(buffer_duration_ms=max(int(buffer_ms), 0))
+        self._circular = CircularOutput2()
         self._encoder.output = [self._stream_output, self._circular]
         self._picamera.start_encoder(self._encoder)  # type: ignore[attr-defined]
         logger.info("Publishing live stream to %s (%s)", publish_url, publish_format)
