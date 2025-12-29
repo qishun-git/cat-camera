@@ -142,7 +142,7 @@ class SharedPicameraEncoder:
         self._temp_dir = ensure_dir(temp_dir)
         self._temp_path = self._temp_dir / "active_clip.mp4"
         self._stream_output = PyavOutput(publish_url, format=publish_format, options=publish_options)
-        self._file_output = PyavOutput(str(self._temp_path), format="mp4")
+        self._file_output = FfmpegOutput(str(self._temp_path))
         self._encoder.output = [self._stream_output, self._file_output]
         self._picamera.start_encoder(self._encoder)  # type: ignore[attr-defined]
         logger.info("Publishing live stream to %s (%s)", publish_url, publish_format)
