@@ -1,17 +1,17 @@
 from __future__ import annotations
 
 import time
+import threading
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
 import logging
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple, List
 
 import cv2
 import numpy as np
 
 from cat_face.camera import CameraError, CameraInterface, PICAMERA2_AVAILABLE
-from cat_face.streamer import PicameraRTSPPublisher
 from cat_face.utils import configure_logging, ensure_dir, load_project_config, resolve_paths
 
 logger = logging.getLogger(__name__)
@@ -19,11 +19,12 @@ logger = logging.getLogger(__name__)
 if PICAMERA2_AVAILABLE:
     from picamera2 import Picamera2  # type: ignore
     from picamera2.encoders import H264Encoder  # type: ignore
-    from picamera2.outputs import FfmpegOutput  # type: ignore
+    from picamera2.outputs import FfmpegOutput, PyavOutput  # type: ignore
 else:
     Picamera2 = None  # type: ignore
     H264Encoder = None  # type: ignore
     FfmpegOutput = None  # type: ignore
+    PyavOutput = None  # type: ignore
 
 
 @dataclass
@@ -137,6 +138,95 @@ class PicameraRecordingBackend(RecordingBackend):
                     pass
             self._encoder = None
             self._output = None
+
+
+class SharedPicameraEncoder:
+    """Keeps a single Picamera2 encoder running for both streaming and clip recording."""
+
+    def __init__(
+        self,
+        picamera: Picamera2,  # type: ignore[valid-type]
+        bitrate: int,
+        publish_url: str,
+        publish_format: str,
+        publish_options: Dict[str, str],
+    ) -> None:
+        if PyavOutput is None or H264Encoder is None or FfmpegOutput is None:
+            raise RuntimeError("Picamera2 streaming requested but required modules are unavailable.")
+        if not publish_url:
+            raise ValueError("publish_url must be provided for streaming.")
+        self._picamera = picamera
+        self._encoder = H264Encoder(bitrate=max(int(bitrate), 1_000_000))  # type: ignore[name-defined]
+        self._lock = threading.Lock()
+        self._base_outputs: List[Any] = []
+        self._clip_output: Optional[FfmpegOutput] = None  # type: ignore[name-defined]
+        stream_output = PyavOutput(publish_url, format=publish_format, options=publish_options)  # type: ignore[name-defined]
+        self._stream_output = stream_output
+        self._base_outputs.append(stream_output)
+        self._encoder.output = list(self._base_outputs)
+        self._picamera.start_encoder(self._encoder)  # type: ignore[attr-defined]
+        logger.info("Publishing live stream to %s (%s)", publish_url, publish_format)
+
+    def start_clip(self, temp_path: Path) -> None:
+        with self._lock:
+            if self._clip_output is not None:
+                raise RuntimeError("Recorder already writing a clip.")
+            clip_output = FfmpegOutput(str(temp_path))  # type: ignore[name-defined]
+            outputs = list(self._base_outputs)
+            outputs.append(clip_output)
+            self._encoder.output = outputs
+            self._clip_output = clip_output
+
+    def stop_clip(self) -> None:
+        clip_output: Optional[FfmpegOutput] = None
+        with self._lock:
+            if self._clip_output is None:
+                return
+            clip_output = self._clip_output
+            self._clip_output = None
+            self._encoder.output = list(self._base_outputs)
+        if clip_output is not None:
+            self._close_output(clip_output)
+
+    def close(self) -> None:
+        with self._lock:
+            clip_output = self._clip_output
+            self._clip_output = None
+            try:
+                self._picamera.stop_encoder(self._encoder)  # type: ignore[attr-defined]
+            except Exception as exc:
+                logger.warning("Failed to stop shared encoder cleanly: %s", exc)
+            if clip_output is not None:
+                self._close_output(clip_output)
+
+    def _close_output(self, output: FfmpegOutput) -> None:  # type: ignore[name-defined]
+        try:
+            if hasattr(output, "stop"):
+                output.stop()
+        except Exception:
+            pass
+        try:
+            if hasattr(output, "close"):
+                output.close()
+        except Exception:
+            pass
+
+
+class SharedEncoderBackend(RecordingBackend):
+    """Recording backend that toggles clip output on a shared encoder."""
+
+    def __init__(self, controller: SharedPicameraEncoder) -> None:
+        self._controller = controller
+
+    def start(self, frame: np.ndarray, temp_path: Path, fps: float) -> None:
+        del frame, fps
+        self._controller.start_clip(temp_path)
+
+    def handle_frame(self, frame: np.ndarray) -> None:
+        return
+
+    def stop(self) -> None:
+        self._controller.stop_clip()
 
 
 @dataclass
@@ -258,31 +348,34 @@ def main() -> None:
         preview_resolution=lores_resolution,
         target_fps=picamera_fps,
     )
-    backend_factory: Callable[[], RecordingBackend] = lambda: PicameraRecordingBackend(  # type: ignore[attr-defined]
-        camera.picamera,
-        recorder_cfg.picamera_bitrate,
-    )
-
-    publisher: Optional[PicameraRTSPPublisher] = None
+    shared_encoder: Optional[SharedPicameraEncoder] = None
+    backend_factory: Callable[[], RecordingBackend]
     if stream_publish_url:
         try:
             options = {str(k): str(v) for k, v in (stream_publish_options or {}).items()}
-            publisher = PicameraRTSPPublisher(
+            shared_encoder = SharedPicameraEncoder(
                 camera.picamera,  # type: ignore[arg-type]
-                target=str(stream_publish_url),
                 bitrate=stream_bitrate,
-                fmt=str(stream_publish_format),
-                options=options,
+                publish_url=str(stream_publish_url),
+                publish_format=str(stream_publish_format),
+                publish_options=options,
             )
-            logger.info("Publishing live stream to %s (%s)", stream_publish_url, stream_publish_format)
+            backend_factory = lambda: SharedEncoderBackend(shared_encoder)  # type: ignore[misc]
         except Exception as exc:
-            logger.warning("Unable to start RTSP publisher (%s): %s", stream_publish_url, exc)
+            logger.error("Unable to start shared encoder for streaming: %s", exc)
+            raise
+    else:
+        backend_factory = lambda: PicameraRecordingBackend(  # type: ignore[attr-defined]
+            camera.picamera,
+            recorder_cfg.picamera_bitrate,
+        )
 
     try:
         run_motion_recorder(camera, recorder_cfg, motion_cfg, backend_factory)
     finally:
-        if publisher:
-            publisher.stop()
+        if shared_encoder:
+            shared_encoder.close()
+        camera.release()
 
 
 def run_motion_recorder(
@@ -383,7 +476,6 @@ def run_motion_recorder(
             else:
                 discard_clip(session, "Discarding unfinished clip (insufficient duration).")
             session = None
-        camera.release()
 
 
 class PicameraFrameSource(CameraInterface):
