@@ -24,6 +24,7 @@ def _unique_destination(dest_dir: Path, src: Path) -> Path:
 def move_clip(src: Path, dest_dir: Path) -> None:
     dest = _unique_destination(dest_dir, src)
     src.replace(dest)
+    clip_recording_marker(src).unlink(missing_ok=True)
     logger.info("Moved %s -> %s (compression disabled)", src, dest)
 
 
@@ -46,6 +47,7 @@ def compress_clip(src: Path, dest_dir: Path, crf: int) -> None:
     ]
     subprocess.run(cmd, check=True, stdin=subprocess.DEVNULL)
     src.unlink(missing_ok=True)
+    clip_recording_marker(src).unlink(missing_ok=True)
     logger.info("Compressed %s -> %s", src, dest)
 
 
@@ -72,7 +74,7 @@ def main() -> None:
     )
     try:
         while True:
-            new_clips = sorted(p for p in raw_dir.glob("*.mp4") if not p.stem.endswith("_tmp"))
+            new_clips = sorted(p for p in raw_dir.glob("*.mp4") if not clip_recording_marker(p).exists())
             for clip in new_clips:
                 try:
                     if enable_compression:
@@ -90,3 +92,5 @@ def main() -> None:
 if __name__ == "__main__":
     configure_logging()
     main()
+def clip_recording_marker(path: Path) -> Path:
+    return path.with_suffix(f"{path.suffix}.recording")

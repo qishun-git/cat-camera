@@ -73,7 +73,7 @@ class RecorderConfig:
 
 class RecordingBackend(ABC):
     @abstractmethod
-    def start(self, frame: np.ndarray, temp_path: Path, fps: float) -> None:
+    def start(self, frame: np.ndarray, clip_path: Path, fps: float) -> None:
         """Prepare backend resources for a new clip."""
 
     @abstractmethod
@@ -90,9 +90,9 @@ class OpenCVRecordingBackend(RecordingBackend):
         self._fourcc = fourcc
         self._writer: Optional[cv2.VideoWriter] = None
 
-    def start(self, frame: np.ndarray, temp_path: Path, fps: float) -> None:
+    def start(self, frame: np.ndarray, clip_path: Path, fps: float) -> None:
         height, width = frame.shape[:2]
-        writer = cv2.VideoWriter(str(temp_path), self._fourcc, fps, (width, height))
+        writer = cv2.VideoWriter(str(clip_path), self._fourcc, fps, (width, height))
         if not writer.isOpened():
             raise RuntimeError("Unable to create video writer for clip recording.")
         self._writer = writer
@@ -116,9 +116,9 @@ class PicameraRecordingBackend(RecordingBackend):
         self._encoder: Optional[H264Encoder] = None  # type: ignore[name-defined]
         self._output: Optional[FfmpegOutput] = None  # type: ignore[name-defined]
 
-    def start(self, frame: np.ndarray, temp_path: Path, fps: float) -> None:
+    def start(self, frame: np.ndarray, clip_path: Path, fps: float) -> None:
         self._encoder = H264Encoder(bitrate=self._bitrate)  # type: ignore[name-defined]
-        self._output = FfmpegOutput(str(temp_path))  # type: ignore[name-defined]
+        self._output = FfmpegOutput(str(clip_path))  # type: ignore[name-defined]
         self._picamera.start_encoder(self._encoder, self._output)  # type: ignore[attr-defined, call-arg]
 
     def handle_frame(self, frame: np.ndarray) -> None:
@@ -151,7 +151,7 @@ class SharedPicameraEncoder:
         publish_format: str,
         publish_options: Dict[str, str],
     ) -> None:
-        if PyavOutput is None or H264Encoder is None or FfmpegOutput is None:
+        if PyavOutput is None or H264Encoder is None:
             raise RuntimeError("Picamera2 streaming requested but required modules are unavailable.")
         if not publish_url:
             raise ValueError("publish_url must be provided for streaming.")
@@ -159,7 +159,7 @@ class SharedPicameraEncoder:
         self._encoder = H264Encoder(bitrate=max(int(bitrate), 1_000_000))  # type: ignore[name-defined]
         self._lock = threading.Lock()
         self._base_outputs: List[Any] = []
-        self._clip_output: Optional[FfmpegOutput] = None  # type: ignore[name-defined]
+        self._clip_output: Optional[Any] = None
         stream_output = PyavOutput(publish_url, format=publish_format, options=publish_options)  # type: ignore[name-defined]
         self._stream_output = stream_output
         self._base_outputs.append(stream_output)
@@ -167,11 +167,12 @@ class SharedPicameraEncoder:
         self._picamera.start_encoder(self._encoder)  # type: ignore[attr-defined]
         logger.info("Publishing live stream to %s (%s)", publish_url, publish_format)
 
-    def start_clip(self, temp_path: Path) -> None:
+    def start_clip(self, clip_path: Path) -> None:
         with self._lock:
             if self._clip_output is not None:
                 raise RuntimeError("Recorder already writing a clip.")
-            clip_output = FfmpegOutput(str(temp_path))  # type: ignore[name-defined]
+            clip_path.parent.mkdir(parents=True, exist_ok=True)
+            clip_output = PyavOutput(str(clip_path), format="mp4")  # type: ignore[name-defined]
             outputs = list(self._base_outputs)
             outputs.append(clip_output)
             self._encoder.output = outputs
@@ -199,7 +200,7 @@ class SharedPicameraEncoder:
             if clip_output is not None:
                 self._close_output(clip_output)
 
-    def _close_output(self, output: FfmpegOutput) -> None:  # type: ignore[name-defined]
+    def _close_output(self, output: Any) -> None:
         try:
             if hasattr(output, "stop"):
                 output.stop()
@@ -218,9 +219,9 @@ class SharedEncoderBackend(RecordingBackend):
     def __init__(self, controller: SharedPicameraEncoder) -> None:
         self._controller = controller
 
-    def start(self, frame: np.ndarray, temp_path: Path, fps: float) -> None:
+    def start(self, frame: np.ndarray, clip_path: Path, fps: float) -> None:
         del frame, fps
-        self._controller.start_clip(temp_path)
+        self._controller.start_clip(clip_path)
 
     def handle_frame(self, frame: np.ndarray) -> None:
         return
@@ -232,8 +233,8 @@ class SharedEncoderBackend(RecordingBackend):
 @dataclass
 class ClipSession:
     backend: RecordingBackend
-    final_path: Path
-    temp_path: Path
+    clip_path: Path
+    marker_path: Path
     fps: float
     start_time: float
     last_detection_time: float
@@ -255,6 +256,10 @@ def timestamp_name() -> str:
     return time.strftime("%Y%m%d-%H%M%S")
 
 
+def clip_marker_path(clip_path: Path) -> Path:
+    return clip_path.with_suffix(f"{clip_path.suffix}.recording")
+
+
 def create_clip_session(
     frame: np.ndarray,
     now: float,
@@ -264,45 +269,44 @@ def create_clip_session(
 ) -> ClipSession:
     clip_name = f"cat_{timestamp_name()}.mp4"
     final_path = cfg.output_dir / clip_name
-    temp_path = cfg.output_dir / f"{final_path.stem}_tmp{final_path.suffix}"
+    counter = 1
+    while final_path.exists():
+        final_path = cfg.output_dir / f"{final_path.stem}_{counter}{final_path.suffix}"
+        counter += 1
+    final_path.parent.mkdir(parents=True, exist_ok=True)
+    marker = clip_marker_path(final_path)
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.touch(exist_ok=True)
 
     fps = cfg.fps_override or camera_fps or 30.0
-    backend.start(frame, temp_path, fps)
+    backend.start(frame, final_path, fps)
 
     return ClipSession(
         backend=backend,
-        final_path=final_path,
-        temp_path=temp_path,
+        clip_path=final_path,
+        marker_path=marker,
         fps=fps,
         start_time=now,
         last_detection_time=now,
     )
 
 
-def _promote_clip(temp_path: Path, final_path: Path) -> Path:
-    if not temp_path.exists():
-        logger.warning("Temp clip missing for %s", final_path)
-        return final_path
-    try:
-        temp_path.rename(final_path)
-    except OSError as exc:
-        logger.warning("Failed to rename temp clip %s: %s", temp_path, exc)
-    return final_path
-
-
 def finalize_clip(session: ClipSession, reason: str) -> None:
     session.backend.stop()
-    saved_path = _promote_clip(session.temp_path, session.final_path)
-    logger.info("Recording saved (%s): %s", reason, saved_path)
+    if session.marker_path.exists():
+        session.marker_path.unlink(missing_ok=True)
+    logger.info("Recording saved (%s): %s", reason, session.clip_path)
 
 
 def discard_clip(session: ClipSession, message: str) -> None:
     session.backend.stop()
-    if session.temp_path.exists():
+    if session.clip_path.exists():
         try:
-            session.temp_path.unlink()
+            session.clip_path.unlink()
         except OSError as exc:
-            logger.warning("Failed to delete %s: %s", session.temp_path, exc)
+            logger.warning("Failed to delete %s: %s", session.clip_path, exc)
+    if session.marker_path.exists():
+        session.marker_path.unlink(missing_ok=True)
     logger.info("%s", message)
 
 
