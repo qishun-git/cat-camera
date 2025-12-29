@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import cv2
 
-from cat_face.camera import CameraError, create_camera
+from cat_face.camera import CameraError, Picamera2Camera, create_camera
 from cat_face.streamer import MJPEGStreamer
 from cat_face.utils import ensure_dir, load_project_config, resolve_paths
 
@@ -21,6 +21,7 @@ class RecorderConfig:
     absence_grace: float
     fps_override: Optional[float]
     codec: str
+    native_bitrate: int
 
     @classmethod
     def from_project(cls, project_config: Dict[str, Any], base_path: Path) -> "RecorderConfig":
@@ -32,6 +33,7 @@ class RecorderConfig:
             "absence_grace": 1.0,
             "fps": 0.0,
             "codec": "mp4v",
+            "native_bitrate": 4000000,
         }
         raw_cfg = defaults | (project_config.get("recorder") or {})
         min_duration = max(float(raw_cfg["min_duration"]), 0.0)
@@ -50,21 +52,58 @@ class RecorderConfig:
             absence_grace=absence_grace,
             fps_override=fps_override,
             codec=str(raw_cfg.get("codec", "mp4v")),
+            native_bitrate=int(raw_cfg.get("native_bitrate", 4_000_000)),
         )
+
+
+class NativeRecorder:
+    def __init__(self, camera: Picamera2Camera, bitrate: int = 4_000_000) -> None:
+        from picamera2.encoders import H264Encoder
+        from picamera2.outputs import FfmpegOutput
+
+        self._camera = camera
+        self._bitrate = bitrate
+        self._H264Encoder = H264Encoder
+        self._FfmpegOutput = FfmpegOutput
+        self._active = False
+
+    @property
+    def fps(self) -> float:
+        return self._camera.fps
+
+    def start(self, output_path: Path) -> None:
+        if self._active:
+            raise RuntimeError("Native recorder already running.")
+        encoder = self._H264Encoder(bitrate=self._bitrate)
+        output = self._FfmpegOutput(str(output_path))
+        self._encoder = encoder
+        self._output = output
+        self._camera.raw.start_recording(encoder, output)
+        self._active = True
+
+    def stop(self) -> None:
+        if not self._active:
+            return
+        self._camera.raw.stop_recording()
+        self._encoder = None
+        self._output = None
+        self._active = False
 
 
 @dataclass
 class ClipSession:
-    writer: cv2.VideoWriter
+    writer: Optional[cv2.VideoWriter]
     final_path: Path
     temp_path: Path
     fps: float
     start_time: float
     last_detection_time: float
-    frames: List[Any] = field(default_factory=list)
+    native_recorder: Optional[NativeRecorder] = None
+    using_native: bool = False
 
     def append_frame(self, frame: Any) -> None:
-        self.frames.append(frame.copy())
+        if self.writer:
+            self.writer.write(frame)
 
     def duration(self, now: float) -> float:
         return now - self.start_time
@@ -74,9 +113,6 @@ class ClipSession:
 
     def mark_detection(self, timestamp: float) -> None:
         self.last_detection_time = timestamp
-
-    def clear_frames(self) -> None:
-        self.frames.clear()
 
 
 def timestamp_name() -> str:
@@ -89,6 +125,7 @@ def create_clip_session(
     cfg: RecorderConfig,
     fourcc: int,
     camera_fps: Optional[float],
+    native_recorder: Optional[NativeRecorder] = None,
 ) -> ClipSession:
     clip_name = f"cat_{timestamp_name()}.mp4"
     final_path = cfg.output_dir / clip_name
@@ -96,9 +133,17 @@ def create_clip_session(
 
     frame_height, frame_width = frame.shape[:2]
     fps = cfg.fps_override or camera_fps or 30.0
-    writer = cv2.VideoWriter(str(temp_path), fourcc, fps, (frame_width, frame_height))
-    if not writer.isOpened():
-        raise RuntimeError("Unable to create video writer for clip recording.")
+    if native_recorder:
+        native_recorder.start(temp_path)
+        if native_recorder.fps > 0:
+            fps = native_recorder.fps
+        writer = None
+        using_native = True
+    else:
+        writer = cv2.VideoWriter(str(temp_path), fourcc, fps, (frame_width, frame_height))
+        if not writer.isOpened():
+            raise RuntimeError("Unable to create video writer for clip recording.")
+        using_native = False
 
     return ClipSession(
         writer=writer,
@@ -107,13 +152,9 @@ def create_clip_session(
         fps=fps,
         start_time=now,
         last_detection_time=now,
+        native_recorder=native_recorder if using_native else None,
+        using_native=using_native,
     )
-
-
-def _write_frames(session: ClipSession) -> None:
-    for frame in session.frames:
-        session.writer.write(frame)
-    session.clear_frames()
 
 
 def _promote_clip(temp_path: Path, final_path: Path) -> Path:
@@ -128,15 +169,19 @@ def _promote_clip(temp_path: Path, final_path: Path) -> Path:
 
 
 def finalize_clip(session: ClipSession, reason: str) -> None:
-    _write_frames(session)
-    session.writer.release()
+    if session.using_native and session.native_recorder:
+        session.native_recorder.stop()
+    if session.writer:
+        session.writer.release()
     saved_path = _promote_clip(session.temp_path, session.final_path)
     print(f"Recording saved ({reason}): {saved_path}")
 
 
 def discard_clip(session: ClipSession, message: str) -> None:
-    session.writer.release()
-    session.clear_frames()
+    if session.using_native and session.native_recorder:
+        session.native_recorder.stop()
+    if session.writer:
+        session.writer.release()
     if session.temp_path.exists():
         session.temp_path.unlink(missing_ok=True)
     print(message)
@@ -175,6 +220,7 @@ def main() -> None:
         picamera_resolution = None
     picamera_fps = vision_cfg.get("picamera_fps")
     picamera_fps = float(picamera_fps) if picamera_fps else None
+    native_recorder: Optional[NativeRecorder] = None
     try:
         camera = create_camera(
             camera_index=camera_index,
@@ -184,6 +230,12 @@ def main() -> None:
         )
     except CameraError as exc:
         raise RuntimeError(str(exc)) from exc
+    if prefer_picamera and isinstance(camera, Picamera2Camera):
+        try:
+            native_recorder = NativeRecorder(camera, bitrate=recorder_cfg.native_bitrate)
+        except Exception as exc:
+            print(f"Warning: Picamera2 native recorder unavailable ({exc}). Falling back to OpenCV writer.")
+            native_recorder = None
 
     fourcc = cv2.VideoWriter_fourcc(*recorder_cfg.codec)
 
@@ -258,7 +310,14 @@ def main() -> None:
                 if session is None:
                     if (now - last_clip_time) < recorder_cfg.cooldown:
                         continue
-                    session = create_clip_session(frame, now, recorder_cfg, fourcc, camera.fps)
+                    session = create_clip_session(
+                        frame,
+                        now,
+                        recorder_cfg,
+                        fourcc,
+                        camera.fps,
+                        native_recorder=native_recorder,
+                    )
                     print(
                         f"Recording started: {session.temp_path} "
                         f"(target {recorder_cfg.min_duration:.0f}-{recorder_cfg.max_duration:.0f}s/{session.fps:.1f} fps)"

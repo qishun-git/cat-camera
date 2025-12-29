@@ -131,6 +131,10 @@ class Picamera2Camera(CameraInterface):
     def is_open(self) -> bool:
         return True
 
+    @property
+    def raw(self):
+        return self._picam
+
 
 def create_camera(
     camera_index: int = 0,
