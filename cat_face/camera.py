@@ -67,6 +67,7 @@ class Picamera2Camera(CameraInterface):
     def __init__(
         self,
         resolution: Optional[Tuple[int, int]] = None,
+        preview_resolution: Optional[Tuple[int, int]] = None,
         target_fps: Optional[float] = None,
     ) -> None:
         if not PICAMERA2_AVAILABLE:
@@ -75,12 +76,21 @@ class Picamera2Camera(CameraInterface):
         main_config = {"format": "RGB888"}
         if resolution:
             main_config["size"] = resolution
+        preview_size = preview_resolution or resolution
+        lores_config: Optional[Dict[str, Any]] = None
+        if preview_size:
+            lores_config = {"format": "RGB888", "size": preview_size}
+            self._capture_stream = "lores"
+        else:
+            self._capture_stream = "main"
         self._fps = float(target_fps) if target_fps and target_fps > 0 else 0.0
         controls: Dict[str, Any] = {}
         if self._fps > 0:
             frame_duration = int(1_000_000 / self._fps)
             controls["FrameDurationLimits"] = (frame_duration, frame_duration)
-        config = self._picam.create_video_configuration(main=main_config, controls=controls)
+        config = self._picam.create_video_configuration(
+            main=main_config, lores=lores_config, controls=controls
+        )
         self._picam.configure(config)
         self._picam.start()
         time.sleep(0.05)
@@ -90,7 +100,7 @@ class Picamera2Camera(CameraInterface):
             self._fps = 30.0
 
     def read(self) -> Tuple[bool, np.ndarray]:
-        frame = self._picam.capture_array("main")
+        frame = self._picam.capture_array(self._capture_stream)
         if frame is None:
             return False, np.zeros((1, 1, 3), dtype=np.uint8)
         converted = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
@@ -141,12 +151,16 @@ def create_camera(
     prefer_picamera: bool = False,
     picamera_resolution: Optional[Tuple[int, int]] = None,
     picamera_fps: Optional[float] = None,
-    opencv_resolution: Optional[Tuple[int, int]] = None,
+    preview_resolution: Optional[Tuple[int, int]] = None,
 ) -> CameraInterface:
     if prefer_picamera:
         if not PICAMERA2_AVAILABLE:
             raise CameraError(
                 "Picamera2 was requested but is not available. Install picamera2 or disable 'prefer_picamera2'."
             )
-        return Picamera2Camera(resolution=picamera_resolution, target_fps=picamera_fps)
-    return OpenCVCamera(camera_index, resolution=opencv_resolution)
+        return Picamera2Camera(
+            resolution=picamera_resolution,
+            preview_resolution=preview_resolution,
+            target_fps=picamera_fps,
+        )
+    return OpenCVCamera(camera_index, resolution=preview_resolution)

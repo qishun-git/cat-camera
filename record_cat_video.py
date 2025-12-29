@@ -78,7 +78,7 @@ class NativeRecorder:
         output = self._FfmpegOutput(str(output_path))
         self._encoder = encoder
         self._output = output
-        self._camera.raw.start_recording(encoder, output)
+        self._camera.raw.start_recording(encoder, output, name="main")
         self._active = True
 
     def stop(self) -> None:
@@ -221,12 +221,14 @@ def main() -> None:
     picamera_fps = vision_cfg.get("picamera_fps")
     picamera_fps = float(picamera_fps) if picamera_fps else None
     native_recorder: Optional[NativeRecorder] = None
+    preview_resolution = stream_resolution or picamera_resolution
     try:
         camera = create_camera(
             camera_index=camera_index,
             prefer_picamera=prefer_picamera,
             picamera_resolution=picamera_resolution,
             picamera_fps=picamera_fps,
+            preview_resolution=preview_resolution,
         )
     except CameraError as exc:
         raise RuntimeError(str(exc)) from exc
