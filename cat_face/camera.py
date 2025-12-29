@@ -81,8 +81,10 @@ class Picamera2Camera(CameraInterface):
         if preview_size:
             lores_config = {"format": "YUV420", "size": preview_size}
             self._capture_stream = "lores"
+            self._capture_format = "YUV420"
         else:
             self._capture_stream = "main"
+            self._capture_format = "RGB888"
         self._fps = float(target_fps) if target_fps and target_fps > 0 else 0.0
         controls: Dict[str, Any] = {}
         if self._fps > 0:
@@ -103,7 +105,10 @@ class Picamera2Camera(CameraInterface):
         frame = self._picam.capture_array(self._capture_stream)
         if frame is None:
             return False, np.zeros((1, 1, 3), dtype=np.uint8)
-        converted = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+        if self._capture_format.startswith("YUV"):
+            converted = cv2.cvtColor(frame, cv2.COLOR_YUV2BGR_I420)
+        else:
+            converted = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
         return True, converted
 
     def release(self) -> None:
