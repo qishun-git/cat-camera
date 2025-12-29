@@ -152,8 +152,6 @@ class SharedPicameraEncoder:
             if self._active_final_path is not None:
                 raise RuntimeError("Recorder already writing a clip.")
             clip_path.parent.mkdir(parents=True, exist_ok=True)
-            if self._temp_path.exists():
-                self._temp_path.unlink()
             self._active_final_path = clip_path
         self._start_file_output()
 
