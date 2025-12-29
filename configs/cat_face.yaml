@@ -87,8 +87,6 @@ recorder:
   codec: avc1
   # Target bitrate (bits/sec) for Picamera2's native H.264 encoder.
   picamera_bitrate: 10000000
-  # Milliseconds of video retained in the circular buffer before a clip starts (0 disables pre-roll).
-  prerecord_ms: 0
 
 motion:
   # Background subtractor history (frames) for motion detection.

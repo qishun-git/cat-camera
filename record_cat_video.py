@@ -38,7 +38,6 @@ class RecorderConfig:
     fps_override: Optional[float]
     codec: str
     picamera_bitrate: int
-    prerecord_ms: int
 
     @classmethod
     def from_project(cls, project_config: Dict[str, Any], base_path: Path) -> "RecorderConfig":
@@ -51,7 +50,6 @@ class RecorderConfig:
             "fps": 0.0,
             "codec": "mp4v",
             "picamera_bitrate": 10_000_000,
-            "prerecord_ms": 0,
         }
         raw_cfg = defaults | (project_config.get("recorder") or {})
         min_duration = max(float(raw_cfg["min_duration"]), 0.0)
@@ -61,8 +59,6 @@ class RecorderConfig:
         fps_value = float(raw_cfg.get("fps", 0.0))
         fps_override = fps_value if fps_value > 0 else None
         output_dir = ensure_dir(Path(str(raw_cfg["output_dir"])))
-        prerecord_ms = max(int(raw_cfg.get("prerecord_ms", 0)), 0)
-
         return cls(
             output_dir=output_dir,
             min_duration=min_duration,
@@ -72,7 +68,6 @@ class RecorderConfig:
             fps_override=fps_override,
             codec=str(raw_cfg.get("codec", "mp4v")),
             picamera_bitrate=int(raw_cfg.get("picamera_bitrate", 10_000_000)),
-            prerecord_ms=prerecord_ms,
         )
 
 
@@ -134,7 +129,6 @@ class SharedPicameraEncoder:
         publish_url: str,
         publish_format: str,
         publish_options: Dict[str, str],
-        buffer_ms: int,
     ) -> None:
         if PyavOutput is None or H264Encoder is None or CircularOutput2 is None:
             raise RuntimeError("Picamera2 streaming requested but required modules are unavailable.")
@@ -353,7 +347,6 @@ def main() -> None:
                 publish_url=str(stream_publish_url),
                 publish_format=str(stream_publish_format),
                 publish_options=options,
-                buffer_ms=recorder_cfg.prerecord_ms,
             )
             backend_factory = lambda: SharedEncoderBackend(shared_encoder)  # type: ignore[misc]
         except Exception as exc:
