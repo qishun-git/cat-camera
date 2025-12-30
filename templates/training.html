@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block content %}
+<section>
+    <h2>Training Labels</h2>
+    {% if message %}
+    <p class="notice success">{{ message }}</p>
+    {% endif %}
+    {% if error %}
+    <p class="notice error">{{ error }}</p>
+    {% endif %}
+    <form method="post" action="/training/run" style="margin-bottom: 1rem;">
+        <button type="submit">Run Training</button>
+    </form>
+    {% if labels %}
+    <table>
+        <tr>
+            <th>Label</th>
+            <th>Images</th>
+            <th>Actions</th>
+        </tr>
+        {% for label in labels %}
+        <tr>
+            <td>{{ label.name }}</td>
+            <td>{{ label.count }}</td>
+            <td><a href="/training/{{ label.name }}">Manage</a></td>
+        </tr>
+        {% endfor %}
+    </table>
+    {% else %}
+    <p>No training images yet.</p>
+    {% endif %}
+</section>
+{% endblock %}

@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block content %}
+<section>
+    <h2>Label: {{ label }}</h2>
+    <p>Total images: {{ images|length }}</p>
+    <p><a href="/training">&larr; Back to labels</a></p>
+</section>
+
+<section>
+    {% if images %}
+    <div class="grid">
+        {% for image in images %}
+        <div class="card">
+            <img src="/training/{{ label }}/image/{{ image.relative }}" alt="{{ image.name }}">
+            <p>{{ image.name }} ({{ "%.1f"|format(image.size_kb) }} KB)</p>
+            <form method="post" action="/training/{{ label }}/image/{{ image.relative }}/action" class="form-inline">
+                <input type="hidden" name="action" value="move">
+                <input list="label-options" name="target_label" placeholder="move to label">
+                <button type="submit">Move</button>
+            </form>
+            <form method="post" action="/training/{{ label }}/image/{{ image.relative }}/action" onsubmit="return confirm('Delete this image?');">
+                <input type="hidden" name="action" value="delete">
+                <button type="submit">Delete</button>
+            </form>
+        </div>
+        {% endfor %}
+    </div>
+    <datalist id="label-options">
+        {% for existing in labels %}
+        <option value="{{ existing }}">
+        {% endfor %}
+    </datalist>
+    {% else %}
+    <p>No images in this label.</p>
+    {% endif %}
+</section>
+{% endblock %}
