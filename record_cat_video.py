@@ -147,7 +147,7 @@ class SharedPicameraEncoder:
 
     def start_clip(self, clip_path: Path) -> None:
         clip_path.parent.mkdir(parents=True, exist_ok=True)
-        clip_output = FfmpegOutput(str(clip_path))
+        clip_output = PyavOutput(str(clip_path))
         with self._lock:
             if self._clip_output is not None:
                 raise RuntimeError("Recorder already writing a clip.")

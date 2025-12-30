@@ -18,7 +18,7 @@ vision:
   face_size: 224
   # Picamera2 is required for recording; these settings control its stream.
   # Resolution for Picamera2 capture (width, height).
-  picamera_resolution: [1920, 1080]
+  picamera_resolution: [1280, 720]
   # Target FPS for Picamera2 capture.
   picamera_fps: 15
   # Resolution used for the low-res preview/motion stream.
