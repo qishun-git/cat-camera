@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 
 def iterate_clips(directory: Path) -> List[Path]:
-    return sorted(directory.glob("*.mp4"))
+    return sorted(path for path in directory.glob("*.mp4") if not path.stem.endswith("_tmp"))
 
 
 def move_unique(src: Path, dest_dir: Path) -> Path:
@@ -336,6 +336,17 @@ def main() -> None:
         else:
             clip_folder = ensure_dir(paths["unlabeled"] / clip_path.stem)
             samples = detection_samples
+            if samples:
+                per_second: List[Tuple[int, int, Any]] = []
+                seen_seconds: set[int] = set()
+                fps_value = clip_fps if clip_fps and clip_fps > 0 else 30.0
+                for frame_idx, det_idx, processed in samples:
+                    second_bucket = int((frame_idx - 1) / fps_value)
+                    if second_bucket in seen_seconds:
+                        continue
+                    seen_seconds.add(second_bucket)
+                    per_second.append((frame_idx, det_idx, processed))
+                samples = per_second
             if save_limit > 0 and len(samples) > save_limit:
                 samples = random.sample(samples, save_limit)
             for frame_idx, det_idx, processed in samples:
