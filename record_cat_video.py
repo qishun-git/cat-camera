@@ -344,14 +344,18 @@ def main() -> None:
     else:
         picamera_resolution = None
     picamera_fps = float(vision_cfg.get("picamera_fps", 0.0))
+    preview_cfg = vision_cfg.get("preview_resolution")
+    if isinstance(preview_cfg, (list, tuple)) and len(preview_cfg) >= 2:
+        preview_resolution = (int(preview_cfg[0]), int(preview_cfg[1]))
+    else:
+        preview_resolution = None
 
     if not (PICAMERA2_AVAILABLE and Picamera2 is not None):
         raise RuntimeError("Picamera2 is required to run the recorder. Install picamera2 on your Pi.")
 
-    lores_resolution = (640, 360)
     camera: CameraInterface = PicameraFrameSource(
         resolution=picamera_resolution,
-        preview_resolution=lores_resolution,
+        preview_resolution=preview_resolution,
         target_fps=picamera_fps,
     )
     shared_encoder: Optional[SharedPicameraEncoder] = None
@@ -404,6 +408,7 @@ def run_motion_recorder(
         blur_kernel = 0
     elif blur_kernel % 2 == 0:
         blur_kernel += 1
+    processing_stride = max(int(motion_cfg.get("processing_stride", 1)), 1)
 
     last_clip_time = 0.0
     session: Optional[ClipSession] = None
@@ -417,25 +422,27 @@ def run_motion_recorder(
                 break
 
             frame_counter += 1
-            processed_frame = frame
-            if blur_kernel >= 3:
-                processed_frame = cv2.GaussianBlur(frame, (blur_kernel, blur_kernel), 0)
-            fg_mask = bg_subtractor.apply(processed_frame)
-            _, motion_mask = cv2.threshold(fg_mask, 200, 255, cv2.THRESH_BINARY)
-            if dilation_iterations > 0:
-                motion_mask = cv2.dilate(motion_mask, None, iterations=dilation_iterations)
-
             had_motion = False
-            if frame_counter > warmup_frames:
-                frame_area = motion_mask.shape[0] * motion_mask.shape[1]
-                motion_ratio = cv2.countNonZero(motion_mask) / float(frame_area or 1)
-                if motion_ratio >= trigger_ratio:
-                    contours, _ = cv2.findContours(motion_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                    for contour in contours:
-                        if cv2.contourArea(contour) < min_area:
-                            continue
-                        had_motion = True
-                        break
+            process_motion = (frame_counter % processing_stride) == 0
+            if process_motion:
+                processed_frame = frame
+                if blur_kernel >= 3:
+                    processed_frame = cv2.GaussianBlur(frame, (blur_kernel, blur_kernel), 0)
+                fg_mask = bg_subtractor.apply(processed_frame)
+                _, motion_mask = cv2.threshold(fg_mask, 200, 255, cv2.THRESH_BINARY)
+                if dilation_iterations > 0:
+                    motion_mask = cv2.dilate(motion_mask, None, iterations=dilation_iterations)
+
+                if frame_counter > warmup_frames:
+                    frame_area = motion_mask.shape[0] * motion_mask.shape[1]
+                    motion_ratio = cv2.countNonZero(motion_mask) / float(frame_area or 1)
+                    if motion_ratio >= trigger_ratio:
+                        contours, _ = cv2.findContours(motion_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                        for contour in contours:
+                            if cv2.contourArea(contour) < min_area:
+                                continue
+                            had_motion = True
+                            break
 
             now = time.time()
             if had_motion:

@@ -3,8 +3,8 @@
 | Section | Keys | Description |
 | --- | --- | --- |
 | `paths` | `base_data_dir`, `unlabeled_dir`, `training_dir`, `reject_dir`, `models_dir` | Shared directories for collection, sorting, training, and recognition outputs. |
-| `vision` | `camera_index`, `face_size`, `picamera_resolution`, `picamera_fps` | Camera and preprocessing settings shared by the recorder, recognition, and clip processing. `record_cat_video.py` now requires Picamera2; install it on the Pi or the recorder will exit immediately. |
-| `motion` | `history`, `var_threshold`, `dilation_iterations`, `trigger_ratio`, `min_area`, `warmup_frames` | Background subtraction parameters that decide when `record_cat_video.py` starts/stops recording. |
+| `vision` | `camera_index`, `face_size`, `picamera_resolution`, `picamera_fps`, `preview_resolution` | Camera and preprocessing settings shared by the recorder, recognition, and clip processing. `record_cat_video.py` now requires Picamera2; install it on the Pi or the recorder will exit immediately. |
+| `motion` | `history`, `var_threshold`, `dilation_iterations`, `trigger_ratio`, `min_area`, `warmup_frames`, `processing_stride` | Background subtraction parameters that decide when `record_cat_video.py` starts/stops recording. |
 | `sorter` | `window_*`, `delete_rejects`, `image_extensions`, `per_label_limit` | UI knobs for `sort_unlabeled.py`; `per_label_limit` randomly caps each label’s images after sorting. |
 | `training` | `labels_filename`, `embedding_model_filename`, `embedding_input_size` | Output filenames written by `train_embeddings.py` and the embedding backbone’s input size. |
 | `recognition` | `embedding_threshold`, `embedding_model_filename`, `labels_filename` | Runtime thresholds and filenames consumed by `recognize_live.py`. |
@@ -31,6 +31,7 @@ Update `vision.face_size` once to keep recording, training, and recognition alig
 - `min_area`: Minimum contour area (in pixels) to count as motion. Tune to ignore small flickers/noise.
 - `warmup_frames`: Number of initial frames ignored while the background model stabilizes after startup.
 - `blur_kernel`: Optional Gaussian blur kernel (odd) applied before background subtraction. Set to 0/1 to disable; small kernels (3–5) help suppress high-frequency vibration noise.
+- `processing_stride`: Processes motion detection every Nth frame (set >1 to skip frames and reduce CPU usage at the cost of responsiveness).
 
 **Clip processing notes**
 - `detection_interval`: YOLO cadence (seconds) while scanning stored clips; raising it reduces CPU load during batch processing.

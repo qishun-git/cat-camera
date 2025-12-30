@@ -18,9 +18,11 @@ vision:
   face_size: 224
   # Picamera2 is required for recording; these settings control its stream.
   # Resolution for Picamera2 capture (width, height).
-  picamera_resolution: [1280, 720]
+  picamera_resolution: [960, 540]
   # Target FPS for Picamera2 capture.
-  picamera_fps: 0
+  picamera_fps: 15
+  # Resolution used for the low-res preview/motion stream.
+  preview_resolution: [480, 270]
 
 detection:
   # Path to a YOLO ONNX model (relative paths resolve from repo root).
@@ -94,7 +96,7 @@ motion:
   # Variance threshold for foreground detection (higher = less sensitive).
   var_threshold: 25.0
   # Number of dilation iterations applied to the foreground mask.
-  dilation_iterations: 1
+  dilation_iterations: 0
   # Minimum fraction of pixels that must change to consider motion.
   trigger_ratio: 0.01
   # Minimum contour area (pixels) to treat as motion.
@@ -102,7 +104,9 @@ motion:
   # Number of initial frames to ignore while the background model stabilizes.
   warmup_frames: 30
   # Optional Gaussian blur kernel size (odd number). Set to 0/1 to disable.
-  blur_kernel: 5
+  blur_kernel: 0
+  # Only run the motion detector every Nth frame to reduce CPU usage (1 = every frame).
+  processing_stride: 2
 
 streaming:
   # Hardware streaming publisher settings (use with MediaMTX or another RTSP/HLS relay).
