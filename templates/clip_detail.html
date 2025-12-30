@@ -40,6 +40,9 @@
         <input type="hidden" name="action" value="to_unknown">
         <button type="submit">Send to Unknown Clips</button>
     </form>
+    <form method="post" action="{{ request.url_for('delete_clip', category=category, clip_rel=clip_rel) }}" onsubmit="return confirm('Delete this clip?');">
+        <button type="submit">Delete clip</button>
+    </form>
 </section>
 
 <p><a href="/clips">&larr; Back to clips</a></p>

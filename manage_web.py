@@ -1,17 +1,19 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import cv2
 from fastapi import FastAPI, Form, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
-from urllib.parse import urlparse
+from urllib.parse import quote_plus, urlparse
 
 from cat_face.embedding_model import EmbeddingExtractor, EmbeddingModel, EmbeddingRecognizer
 from cat_face.utils import ensure_dir, load_label_map, load_project_config, preprocess_face, resolve_paths
+from train_embeddings import main as train_embeddings_main
 
 
 app = FastAPI(title="Pi-Cam")
@@ -185,6 +187,36 @@ def cleanup_folder(folder: Path) -> None:
         pass
 
 
+def training_label_entries() -> List[Dict[str, Any]]:
+    entries: List[Dict[str, Any]] = []
+    if not STATE.training_root.exists():
+        return entries
+    for label_dir in sorted(p for p in STATE.training_root.iterdir() if p.is_dir()):
+        count = sum(1 for candidate in label_dir.iterdir() if candidate.is_file())
+        entries.append({"name": label_dir.name, "count": count})
+    return entries
+
+
+def resolve_training_label(label: str) -> Path:
+    label_path = safe_join(STATE.training_root, label)
+    if not label_path.exists() or not label_path.is_dir():
+        raise HTTPException(status_code=404, detail="Training label not found")
+    return label_path
+
+
+def training_images(label_path: Path) -> List[Dict[str, Any]]:
+    images: List[Dict[str, Any]] = []
+    for image in sorted(p for p in label_path.iterdir() if p.is_file()):
+        images.append(
+            {
+                "name": image.name,
+                "relative": image.name,
+                "size_kb": image.stat().st_size / 1024,
+            }
+        )
+    return images
+
+
 def resolve_stream_url(request: Request) -> Optional[str]:
     streaming_cfg = STATE.config.get("streaming") or {}
     stream_url = streaming_cfg.get("public_url")
@@ -301,6 +333,23 @@ def move_clip(category: str, clip_rel: str, action: str = Form(...), label: str 
     return RedirectResponse(url="/clips", status_code=303)
 
 
+@app.post("/clips/{category}/{clip_rel:path}/delete")
+def delete_clip(category: str, clip_rel: str):
+    root, clip_path = resolve_clip(category, clip_rel)
+    sidecar = sidecar_path_for_clip(clip_path)
+    try:
+        clip_path.unlink()
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Clip already removed")
+    if sidecar.exists():
+        try:
+            sidecar.unlink()
+        except OSError:
+            pass
+    cleanup_folder(clip_path.parent)
+    return RedirectResponse(url="/clips", status_code=303)
+
+
 @app.get("/unlabeled", response_class=HTMLResponse)
 def unlabeled_list(request: Request):
     folders = list_unlabeled_folders(STATE.unlabeled_root)
@@ -383,3 +432,78 @@ def image_action(folder_rel: str, filename: str, action: str = Form(...), label:
         raise HTTPException(status_code=400, detail="Unknown action")
     cleanup_folder(folder_path)
     return RedirectResponse(url=f"/unlabeled/{folder_rel}", status_code=303)
+
+
+@app.get("/training", response_class=HTMLResponse)
+def training_overview(request: Request):
+    labels = training_label_entries()
+    message = request.query_params.get("message")
+    error = request.query_params.get("error")
+    return templates.TemplateResponse(
+        "training.html",
+        {
+            "request": request,
+            "labels": labels,
+            "message": message,
+            "error": error,
+        },
+    )
+
+
+@app.get("/training/{label}", response_class=HTMLResponse)
+def training_label_view(request: Request, label: str):
+    label_path = resolve_training_label(label)
+    images = training_images(label_path)
+    return templates.TemplateResponse(
+        "training_label.html",
+        {
+            "request": request,
+            "label": label,
+            "images": images,
+            "labels": known_labels(),
+        },
+    )
+
+
+@app.get("/training/{label}/image/{filename}")
+def training_image(label: str, filename: str):
+    label_path = resolve_training_label(label)
+    image_path = safe_join(label_path, filename)
+    if not image_path.exists():
+        raise HTTPException(status_code=404, detail="Image not found")
+    return FileResponse(image_path)
+
+
+@app.post("/training/{label}/image/{filename}/action")
+def training_image_action(label: str, filename: str, action: str = Form(...), target_label: str = Form("")):
+    label_path = resolve_training_label(label)
+    image_path = safe_join(label_path, filename)
+    if not image_path.exists():
+        raise HTTPException(status_code=404, detail="Image not found")
+    if action == "move":
+        dest_label = target_label.strip()
+        if not dest_label:
+            raise HTTPException(status_code=400, detail="Target label required")
+        dest_dir = STATE.training_root / dest_label
+        unique_move(image_path, dest_dir)
+    elif action == "delete":
+        try:
+            image_path.unlink()
+        except FileNotFoundError:
+            pass
+    else:
+        raise HTTPException(status_code=400, detail="Unknown action")
+    cleanup_folder(label_path)
+    return RedirectResponse(url=f"/training/{label}", status_code=303)
+
+
+@app.post("/training/run")
+def trigger_training():
+    try:
+        train_embeddings_main()
+        STATE.refresh()
+        return RedirectResponse(url="/training?message=Training%20complete", status_code=303)
+    except Exception as exc:  # pragma: no cover - surfaced to user
+        logging.exception("Training failed.")
+        error = quote_plus(str(exc))
+        return RedirectResponse(url=f"/training?error={error}", status_code=303)

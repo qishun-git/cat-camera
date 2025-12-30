@@ -23,7 +23,12 @@
                     &mdash;
                 {% endif %}
             </td>
-            <td><a href="/clips/recognized/{{ clip.path }}">View</a></td>
+            <td>
+                <a href="/clips/recognized/{{ clip.path }}">View</a>
+                <form method="post" action="/clips/recognized/{{ clip.path }}/delete" style="display:inline" onsubmit="return confirm('Delete this clip?');">
+                    <button type="submit">Delete</button>
+                </form>
+            </td>
         </tr>
         {% endfor %}
     </table>
@@ -47,7 +52,12 @@
             <td>{{ clip.label }}</td>
             <td>{{ clip.path }}</td>
             <td>{{ "%.2f"|format(clip.size_mb) }}</td>
-            <td><a href="/clips/unknown/{{ clip.path }}">View</a></td>
+            <td>
+                <a href="/clips/unknown/{{ clip.path }}">View</a>
+                <form method="post" action="/clips/unknown/{{ clip.path }}/delete" style="display:inline" onsubmit="return confirm('Delete this clip?');">
+                    <button type="submit">Delete</button>
+                </form>
+            </td>
         </tr>
         {% endfor %}
     </table>
